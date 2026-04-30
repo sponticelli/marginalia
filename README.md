@@ -53,7 +53,7 @@ The differentiator is the artifact. RAG produces an answer; Marginalia produces 
 
 ## What's inside
 
-- A **CLI** (`wiki`) with git-style staging — `wiki add`, `wiki status`, `wiki ingest`, `wiki ask`.
+- A **CLI** (`marginalia`) with git-style staging — `marginalia add`, `marginalia status`, `marginalia ingest`, `marginalia ask`.
 - A **multi-agent engine** built on Claude — orchestrator, ingest, synthesis, QA, lint, and scaffold agents, each tuned for its task.
 - **Source adapters** for local files, Notion, Slack, Hex, Granola, Google Drive, YouTube, and the web.
 - A **durable job queue** so batch ingests survive crashes.
@@ -76,4 +76,4 @@ Karpathy sketched the personal version. Marginalia takes the same pattern furthe
 
 ## License
 
-TBD.
+MIT

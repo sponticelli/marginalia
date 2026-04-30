@@ -1,0 +1,74 @@
+[project]
+name = "marginalia"
+version = "0.1.0"
+description = "Engine for the knowledge wiki — agents, adapters, and CLI."
+readme = "README.md"
+requires-python = ">=3.12"
+license = {text = "MIT"}
+authors = [{name = "Sandro Ponticelli"}]
+
+dependencies = [
+    # Anthropic
+    "claude-agent-sdk>=0.1.68",
+    "anthropic>=0.40",
+    # Schemas & frontmatter
+    "pydantic>=2.0",
+    "python-frontmatter>=1.1",
+    # CLI
+    "typer>=0.12",
+    "rich>=13.0",
+    # Document processing
+    "pypdf>=4.0",
+    "pdfplumber>=0.11",
+    # Adapters
+    "youtube-transcript-api>=0.6",   # YouTube transcripts (no API key needed)
+    # Job queue & retries
+    "tenacity>=8.2",                 # backoff/retry decorators for the worker
+    # Git/GitHub
+    "pygithub>=2.1",
+    "gitpython>=3.1",
+    # Config
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.6",
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "pre-commit>=3.7",
+    "nbstripout>=0.7",
+]
+notebooks = [
+    "jupyterlab>=4.0",
+    "ipykernel>=6.29",
+    "matplotlib>=3.8",
+    "nbval>=0.11",
+]
+scheduler = [
+    "apscheduler>=3.10",             # `marginalia schedule add --cron "..."` (v1+ feature)
+]
+
+[project.scripts]
+marginalia = "engine.cli.main:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["engine"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+exclude = ["notebooks/**", ".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+ignore = ["E501"]  # line length handled by formatter
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-v --tb=short"
