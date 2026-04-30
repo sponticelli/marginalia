@@ -178,7 +178,7 @@ company-wiki/
 The wiki repo (above) is **content only**. The agents, prompts, and CI workflows live in a separate code repo:
 
 ```
-company-wiki-engine/         # the machinery — separate repo
+marginalia/         # the machinery — separate repo
 ├── README.md
 ├── agents/                  # orchestrator, ingest, synth, lint, qa
 │   ├── orchestrator/

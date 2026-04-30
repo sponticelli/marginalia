@@ -1,0 +1,203 @@
+{
+  "$defs": {
+    "ArchivedReason": {
+      "enum": [
+        "upstream-deleted",
+        "superseded",
+        "manual"
+      ],
+      "title": "ArchivedReason",
+      "type": "string"
+    },
+    "Confidence": {
+      "enum": [
+        "high",
+        "medium",
+        "low"
+      ],
+      "title": "Confidence",
+      "type": "string"
+    },
+    "PageStatus": {
+      "enum": [
+        "draft",
+        "active",
+        "stale",
+        "archived",
+        "superseded"
+      ],
+      "title": "PageStatus",
+      "type": "string"
+    },
+    "SourceAuthority": {
+      "enum": [
+        "canonical",
+        "corroborating",
+        "offhand"
+      ],
+      "title": "SourceAuthority",
+      "type": "string"
+    },
+    "SourceKind": {
+      "enum": [
+        "notion_page",
+        "slack_thread",
+        "hex_dashboard",
+        "granola_meeting",
+        "gdrive_file",
+        "youtube_video",
+        "web_page",
+        "local_file"
+      ],
+      "title": "SourceKind",
+      "type": "string"
+    },
+    "SourceRef": {
+      "additionalProperties": false,
+      "description": "One row in the `sources:` frontmatter array (design \u00a76.1).",
+      "properties": {
+        "ref": {
+          "title": "Ref",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/SourceKind"
+        },
+        "captured": {
+          "format": "date",
+          "title": "Captured",
+          "type": "string"
+        },
+        "authority": {
+          "$ref": "#/$defs/SourceAuthority"
+        }
+      },
+      "required": [
+        "ref",
+        "kind",
+        "captured",
+        "authority"
+      ],
+      "title": "SourceRef",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Glossary-style definitions (design \u00a76.2 row 2).",
+  "properties": {
+    "title": {
+      "minLength": 1,
+      "title": "Title",
+      "type": "string"
+    },
+    "type": {
+      "const": "concept",
+      "default": "concept",
+      "title": "Type",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/PageStatus",
+      "default": "draft"
+    },
+    "created": {
+      "format": "date",
+      "title": "Created",
+      "type": "string"
+    },
+    "last_synced": {
+      "format": "date",
+      "title": "Last Synced",
+      "type": "string"
+    },
+    "confidence": {
+      "$ref": "#/$defs/Confidence"
+    },
+    "sources": {
+      "items": {
+        "$ref": "#/$defs/SourceRef"
+      },
+      "title": "Sources",
+      "type": "array"
+    },
+    "owners": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Owners",
+      "type": "array"
+    },
+    "tags": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Tags",
+      "type": "array"
+    },
+    "related": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Related",
+      "type": "array"
+    },
+    "supersedes": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Supersedes"
+    },
+    "contradicts": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Contradicts",
+      "type": "array"
+    },
+    "archived_date": {
+      "anyOf": [
+        {
+          "format": "date",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Archived Date"
+    },
+    "archived_reason": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ArchivedReason"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "validation_errors": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Validation Errors",
+      "type": "array"
+    }
+  },
+  "required": [
+    "title",
+    "created",
+    "last_synced",
+    "confidence"
+  ],
+  "title": "ConceptPage",
+  "type": "object"
+}

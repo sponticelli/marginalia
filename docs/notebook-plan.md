@@ -4,7 +4,7 @@
 **Aligned with:** design.md v0.4
 **Last updated:** 2026-04-30
 
-A sequenced set of 11 Jupyter notebooks that prove the architecture in `design.md` works end-to-end, while doubling as Anthropic Architect exam preparation.
+A sequenced set of 11 Jupyter notebooks that prove the architecture in `marginalia-design.md` works end-to-end, while doubling as Anthropic Architect exam preparation.
 
 ## Changelog
 
@@ -42,6 +42,7 @@ A sequenced set of 11 Jupyter notebooks that prove the architecture in `design.m
 
 ## Notebook 01 — Page schemas, frontmatter, and wiki-level config
 
+**Name:** 01_page_schemas
 **Purpose:** Establish the data layer. Zero API calls. Everything downstream depends on these models.
 **Exam relevance:** Indirect (foundation).
 **Design refs:** §6 page schema, §6.4 `purpose.md`/`AGENTS.md`, §7.3.1 strict schema enforcement.
@@ -67,6 +68,7 @@ A sequenced set of 11 Jupyter notebooks that prove the architecture in `design.m
 
 ## Notebook 02 — First API call + strict-schema retry + the cacheable analyze step
 
+**Name:** 02_ingest_retry
 **Purpose:** First real ingest. Implement the §7.3.1 retry pattern end-to-end on a single source. Make the *analyze* step explicitly cacheable so NB 10 has something to cache.
 **Exam relevance:** API & SDK Usage (20%), Prompt Engineering (20%).
 **Design refs:** §7.1 ingest agent (two-step), §7.3 prompting patterns, §7.3.1 strict schema, §10 Scenario A.
@@ -97,6 +99,7 @@ A sequenced set of 11 Jupyter notebooks that prove the architecture in `design.m
 
 ## Notebook 03 — Model comparison: Haiku vs Sonnet vs Opus
 
+**Name:** 03_model_comparison
 **Purpose:** Generate receipts for the §7.2 model selection table. Pure exam-domain practice.
 **Exam relevance:** Models & Capabilities (17%) — the exam loves specific tradeoffs.
 **Design refs:** §7.2 model selection rationale.
@@ -120,6 +123,7 @@ A sequenced set of 11 Jupyter notebooks that prove the architecture in `design.m
 
 ## Notebook 04 — Multi-modal ingest: PDFs and images
 
+**Name:** 04_multimodal_ingest
 **Purpose:** Demonstrate the multi-modal dispatch path. PDF text-first with vision fallback; image-only via vision.
 **Exam relevance:** Models & Capabilities (multi-modal handling), Architecture Patterns (dispatch).
 **Design refs:** §8 source adapters (file-extension dispatch), §10 Scenario G.
@@ -144,6 +148,7 @@ A sequenced set of 11 Jupyter notebooks that prove the architecture in `design.m
 
 ## Notebook 05 — Synthesis across multiple sources
 
+**Name:** 05_cross_source_synthesis
 **Purpose:** Demonstrate cross-page reasoning. Synthesis agent reads N source pages and produces a concept page citing all of them.
 **Exam relevance:** Prompt Engineering (XML, CoT), Architecture Patterns (RAG-vs-compounding-wiki).
 **Design refs:** §7.1 synthesis agent, §10 Scenario A step 5.
@@ -166,6 +171,7 @@ A sequenced set of 11 Jupyter notebooks that prove the architecture in `design.m
 
 ## Notebook 06 — Custom MCP server + the YouTube adapter
 
+**Name:** 06_mcp_youtube_adapter
 **Purpose:** Build a tiny MCP server end-to-end *and* a real source adapter (YouTube). This is the most cert-valuable notebook — Tool Use is canonical exam material — and the YouTube exercise gives the abstract MCP work a concrete payload.
 **Exam relevance:** Tool Use (cross-cutting), Architecture Patterns (17%).
 **Design refs:** §5.1 source layer, §7.4 tool use, §8 source adapters (YouTube row), §9.6 URL pattern dispatch.
@@ -206,6 +212,7 @@ A sequenced set of 11 Jupyter notebooks that prove the architecture in `design.m
 
 ## Notebook 07 — Multi-agent orchestration with query decomposition and gap detection
 
+**Name:** 07_orchestrator_qa
 **Purpose:** Implement the §7.1 orchestrator + subagents pattern. Cover both ingest (write) and the *full* QA path including decomposition and knowledge-gap detection — the v0.4 additions that turn QA from "answer or fail" into a query-ingest loop.
 **Exam relevance:** Architecture Patterns (orchestrator-subagent at both ingest and query time is exam-canonical).
 **Design refs:** §7.1 agent responsibilities (especially the QA agent's three behaviours), §10 Scenario A (write), Scenario C (read), Scenario I (knowledge gap loop).
@@ -260,6 +267,7 @@ A sequenced set of 11 Jupyter notebooks that prove the architecture in `design.m
 
 ## Notebook 08 — The lint pass: contradiction detection + archive with sync backlink rewrite
 
+**Name:** 08_lint_archive
 **Purpose:** Demonstrate the most demanding flow — Opus reasoning across the wiki, executing the §10 Scenario H archive with atomic backlink rewrite.
 **Exam relevance:** Architecture Patterns, Prompt Engineering (deep CoT for hard reasoning).
 **Design refs:** §10 Scenarios D and H, §16.1 Q4 resolution, §12 failure modes.
@@ -287,6 +295,7 @@ A sequenced set of 11 Jupyter notebooks that prove the architecture in `design.m
 
 ## Notebook 09 — SQLite job queue, worker, and retry semantics
 
+**Name:** 09_job_queue
 **Purpose:** Make ingest durable. Build the §7.5 job queue end-to-end so a 30-source batch can survive a kernel restart and resume.
 **Exam relevance:** Architecture Patterns (durable workflows are exam-canonical).
 **Design refs:** §7.5 job queue.
@@ -316,6 +325,7 @@ A sequenced set of 11 Jupyter notebooks that prove the architecture in `design.m
 
 ## Notebook 10 — The 3-layer cache and `CACHE_VERSION` invalidation
 
+**Name:** 10_cache_layers
 **Purpose:** Make repeated work near-free. Build the §7.6 cache and prove the `CACHE_VERSION` discipline catches the silent-stale-cache bug.
 **Exam relevance:** API & SDK Usage (Anthropic prompt cache), cost engineering.
 **Design refs:** §7.6 caching.
@@ -344,6 +354,7 @@ A sequenced set of 11 Jupyter notebooks that prove the architecture in `design.m
 
 ## Notebook 11 — Audit DB, hooks, and the live `dashboard.md`
 
+**Name:** 11_audit_hooks_dashboard
 **Purpose:** Wire up the observability surfaces. Three small things, one notebook — they share a "the wiki instruments itself" theme.
 **Exam relevance:** Architecture Patterns (observability), responsible AI (audit trails).
 **Design refs:** §13 observability, §13.2 audit DB schema, §13.3 dashboard.md, §14 hooks.

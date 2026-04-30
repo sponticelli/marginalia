@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(/Users/sandroponticelli/Personal/marginalia/.venv/bin/marginalia hello *)",
+      "Bash(uv run *)"
+    ]
+  }
+}

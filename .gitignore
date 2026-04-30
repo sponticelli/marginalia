@@ -36,9 +36,4 @@ Thumbs.db
 *.swp
 
 # Project-specific
-notebooks/data/pdfs/*
-notebooks/data/images/*
-notebooks/data/poc-wiki/*
-!notebooks/data/**/.gitkeep
 _logs/
-.claude/
