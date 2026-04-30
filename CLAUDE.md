@@ -105,7 +105,7 @@ The engine writes into the content repo via git through `marginalia.upsert_page`
 - **Ruff** is the only linter/formatter. Selected rules: `E, F, I, B, UP, SIM`. Line length 100 (long-line warnings ignored — formatter handles wrapping).
 - `notebooks/**` is excluded from ruff.
 - **Large files are blocked** by pre-commit at 500 KB. PDFs/images/video/audio go through git-lfs (`.gitattributes` already routes them).
-- `notebooks/data/{pdfs,images,poc-wiki}/*` is gitignored — only `.gitkeep` is tracked.
+- `notebooks/data/poc-wiki/**` is **tracked** — these are canonical fixture inputs for the ingest demos (good/ambiguous/garbage source files) and must round-trip across machines. Don't gitignore them.
 - `.env` is gitignored; never commit secrets.
 
 ## CLI surface (target — most not yet implemented)
