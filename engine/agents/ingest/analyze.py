@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from engine.models.pages import Confidence, PageType, SourceKind
 from engine.prompts import Prompt, load_prompt
+from engine.utils.api_compat import temperature_kwargs
 
 if TYPE_CHECKING:
     from anthropic import Anthropic
@@ -111,9 +112,11 @@ async def analyze_source(
 ) -> SourceAnalysis:
     """Run the cacheable ingest analyze step on one source body.
 
-    Deterministic (`temperature=0`) and pure over
-    `(content, source_kind, prompt.version)` — safe to L1-cache on
-    `sha256(content) + CACHE_VERSION + prompt.version`.
+    Pure over `(content, source_kind, prompt.version)` — safe to L1-cache
+    on `sha256(content) + CACHE_VERSION + prompt.version`. `temperature=0`
+    is passed when the model accepts it (Haiku 4.5, Sonnet 4.6) and
+    omitted for Opus 4.7, which deprecated the parameter; see
+    `engine.utils.api_compat.temperature_kwargs` for the per-model rule.
 
     `client` and `prompt` are injected for testability; both default to
     real Anthropic / on-disk prompt loading. The content hash is computed
@@ -134,10 +137,11 @@ async def analyze_source(
     )
     system = build_analyze_system(prompt, config)
 
+    chosen_model = model or prompt.model or DEFAULT_MODEL
     resp = client.messages.create(
-        model=model or prompt.model or DEFAULT_MODEL,
+        model=chosen_model,
         max_tokens=max_tokens,
-        temperature=0,
+        **temperature_kwargs(chosen_model),
         system=system,
         messages=[{"role": "user", "content": user_msg}],
     )

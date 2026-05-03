@@ -41,9 +41,38 @@ async def test_analyze_source_validates_and_overrides_sha(stub_client, minimal_c
     assert result.content_sha256 == expected_sha
     assert result.content_sha256 != "0" * 64
 
-    # Verify the model was called with temperature=0 (cacheability invariant).
+    # `temperature=0` is passed for the default Haiku 4.5 model — needed for
+    # L1 cache determinism. See engine.utils.api_compat.temperature_kwargs.
     assert stub_client.calls[0]["temperature"] == 0
     assert "wiki_purpose" in stub_client.calls[0]["system"]
+
+
+@pytest.mark.asyncio
+async def test_analyze_source_skips_temperature_for_opus(stub_client, minimal_config):
+    """Opus 4.7 deprecated `temperature`; the helper must omit it for that model."""
+    content = "A short note."
+    stub_client.texts = [
+        json.dumps(
+            {
+                "proposed_title": "Note",
+                "proposed_type": "source",
+                "summary": "A faithful summary that satisfies the twenty-character minimum.",
+                "entities": [],
+                "proposed_tags": [],
+                "source_kind": "local_file",
+                "content_sha256": "0" * 64,
+            }
+        )
+    ]
+    await analyze_source(
+        content,
+        SourceKind.LOCAL_FILE,
+        minimal_config,
+        client=stub_client,
+        model="claude-opus-4-7",
+    )
+    assert "temperature" not in stub_client.calls[0]
+    assert stub_client.calls[0]["model"] == "claude-opus-4-7"
 
 
 @pytest.mark.asyncio

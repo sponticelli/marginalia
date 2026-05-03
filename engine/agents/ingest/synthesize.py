@@ -20,6 +20,7 @@ from pydantic import ValidationError
 from engine.agents.ingest.analyze import SourceAnalysis
 from engine.models.pages import PageStatus, PageType, SourcePage
 from engine.prompts import Prompt, load_prompt
+from engine.utils.api_compat import temperature_kwargs
 
 if TYPE_CHECKING:
     from anthropic import Anthropic
@@ -119,12 +120,13 @@ async def synthesize_page(
     model: str | None = None,
     max_tokens: int = DEFAULT_MAX_TOKENS,
     max_attempts: int = MAX_ATTEMPTS,
-) -> tuple[SourcePage, list[AttemptRecord]]:
+) -> tuple[SourcePage, str, list[AttemptRecord]]:
     """Synthesize a `SourcePage` from analysis with strict-schema retry.
 
-    Returns ``(page, attempt_log)``. ``page`` may be a draft with
+    Returns ``(page, body, attempt_log)``. ``page`` may be a draft with
     ``status=draft`` and ``validation_errors[]`` populated if all
-    attempts fail (design §7.3.1).
+    attempts fail (design §7.3.1); in that case ``body`` is the empty
+    string (synth produced no usable markdown).
     """
     prompt = prompt or load_prompt(PROMPT_NAME)
     if client is None:
@@ -159,7 +161,7 @@ async def synthesize_page(
         resp = client.messages.create(
             model=chosen_model,
             max_tokens=max_tokens,
-            temperature=0,
+            **temperature_kwargs(chosen_model),
             system=system,
             messages=[{"role": "user", "content": user_msg}],
         )
@@ -172,14 +174,14 @@ async def synthesize_page(
         attempt_log.append(record)
 
         try:
-            fm_dict, _body = parse_frontmatter_and_body(resp.content[0].text)
+            fm_dict, body = parse_frontmatter_and_body(resp.content[0].text)
             page = SourcePage.model_validate(fm_dict)
-            return page, attempt_log
+            return page, body, attempt_log
         except (ValidationError, ValueError, json.JSONDecodeError) as exc:
             prior_errors = normalize_errors(exc)
             record["validation_errors"] = prior_errors
 
-    return _draft_fallback(analysis, prior_errors), attempt_log
+    return _draft_fallback(analysis, prior_errors), "", attempt_log
 
 
 __all__ = [

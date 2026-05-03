@@ -52,11 +52,12 @@ def _valid_source_page_response(sha: str) -> str:
 async def test_happy_path_one_attempt(stub_client, minimal_config, sample_analysis):
     stub_client.texts = [_valid_source_page_response(sample_analysis.content_sha256)]
 
-    page, log = await synthesize_page(sample_analysis, minimal_config, client=stub_client)
+    page, body, log = await synthesize_page(sample_analysis, minimal_config, client=stub_client)
 
     assert page.status == PageStatus.ACTIVE
     assert page.type == PageType.SOURCE
     assert not page.validation_errors
+    assert body == "# Apollo"
     assert len(log) == 1
     assert "validation_errors" not in log[0]
 
@@ -85,9 +86,10 @@ async def test_retry_recovers_after_validation_error(stub_client, minimal_config
         _valid_source_page_response(sample_analysis.content_sha256),
     ]
 
-    page, log = await synthesize_page(sample_analysis, minimal_config, client=stub_client)
+    page, body, log = await synthesize_page(sample_analysis, minimal_config, client=stub_client)
 
     assert page.status == PageStatus.ACTIVE
+    assert body == "# Apollo"
     assert len(log) == 2
     assert "validation_errors" in log[0]
     # Confirm the retry user message carried the prior errors back to the model.
@@ -101,12 +103,13 @@ async def test_draft_fallback_after_max_attempts(stub_client, minimal_config, sa
     # Every response is unparseable → forces 3 failures → draft fallback.
     stub_client.texts = ["this response has no frontmatter or body tags"]
 
-    page, log = await synthesize_page(sample_analysis, minimal_config, client=stub_client)
+    page, body, log = await synthesize_page(sample_analysis, minimal_config, client=stub_client)
 
     assert page.status == PageStatus.DRAFT
     assert page.validation_errors
     assert page.title == sample_analysis.proposed_title
     assert page.created == date.today()
+    assert body == ""
     assert len(log) == MAX_ATTEMPTS
     assert all("validation_errors" in entry for entry in log)
 
