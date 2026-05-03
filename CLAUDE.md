@@ -105,7 +105,12 @@ The engine writes into the content repo via git through `marginalia.upsert_page`
 - **Ruff** is the only linter/formatter. Selected rules: `E, F, I, B, UP, SIM`. Line length 100 (long-line warnings ignored — formatter handles wrapping).
 - `notebooks/**` is excluded from ruff.
 - **Large files are blocked** by pre-commit at 500 KB. PDFs/images/video/audio go through git-lfs (`.gitattributes` already routes them).
-- `notebooks/data/poc-wiki/**` is **tracked** — these are canonical fixture inputs for the ingest demos (good/ambiguous/garbage source files) and must round-trip across machines. Don't gitignore them.
+- `notebooks/data/poc-wiki/**` is **tracked** — canonical fixtures for the notebook demos. Don't gitignore. The layout mirrors what would be two separate locations in production:
+  - `poc-wiki/raw/` — the **inbox** (production: `~/wiki-raw/` per `WIKI_RAW_PATH`). Unprocessed inputs to ingest: markdown clips, PDFs, images. NB 02/04 read from here.
+  - `poc-wiki/sources/` — **wiki content** (production: the wiki repo's `sources/` directory). Processed `SourcePage` files (frontmatter + body) — outputs of ingest, inputs to cross-source synthesis. NB 02/04 produce these (via `notebooks/_ops/build_source_pages.py` for the committed canonical set); NB 05+ read from here.
+  - `poc-wiki/{purpose.md,AGENTS.md}` — wiki-level config the agents read at runtime (loaded by `engine.models.wiki_config.MarginaliaConfig`).
+
+  **Don't conflate `~/wiki-raw/` (inbox) with `sources/raw/` (in-wiki durable archive of originals).** Design.md uses both; they're different things. The PoC only models the inbox role under `poc-wiki/raw/`.
 - `.env` is gitignored; never commit secrets.
 
 ## CLI surface (target — most not yet implemented)
