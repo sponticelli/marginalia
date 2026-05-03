@@ -8,10 +8,10 @@
 
 | Variant | Target type | Attempts | Tokens (in/out) | Cost (USD) | Wall |
 |---|---|---|---|---|---|
-| Vanilla concept | concept | 3 | 7998/6838 | $0.126564 | 103.54s |
-| Hinted concept (platform-engineering) | concept | 2 | 5362/4406 | $0.082176 | 70.39s |
-| Target=Analysis | analysis | 2 | 5352/5458 | $0.097926 | 84.31s |
-| Contradictory pair | concept | 2 | 4713/2689 | $0.054474 | 44.15s |
+| Vanilla concept | concept | 2 | 5328/4215 | $0.079209 | 65.98s |
+| Hinted concept (platform-engineering) | concept | 2 | 5362/4676 | $0.086226 | 74.87s |
+| Target=Analysis | analysis | 2 | 5352/5565 | $0.099531 | 90.60s |
+| Contradictory pair | concept | 2 | 4713/3241 | $0.062754 | 51.09s |
 
 All runs use `claude-sonnet-4-6` (default for cross-source synthesis per design §7.2).
 
@@ -20,7 +20,7 @@ All runs use `claude-sonnet-4-6` (default for cross-source synthesis per design 
 Vanilla synthesis on the 3-source fixture set:
 
 - All wikilinks resolve to known paths: **True**
-- All input source paths cited: **False**
+- All input source paths cited: **True**
 
 The retry loop fed back any dangling/missing-citation errors as
 `<validation_errors>` on the next attempt — the same channel as
@@ -30,8 +30,8 @@ Pydantic schema errors. See `engine.agents.synthesis.cross_source.verify_citatio
 
 | | Vanilla | Hinted |
 |---|---|---|
-| Title | 'Apollo Launch Blockers Sync' | 'Marginalia Engine Platform Architecture' |
-| Body length (chars) | 0 | 3998 |
+| Title | 'Marginalia Engine Architecture' | 'Marginalia Platform Architecture: Ingest, Synthesis, and Model Routing' |
+| Body length (chars) | 3729 | 4347 |
 
 Hint is a soft steer — the same input sources produce a different
 title and framing. Hint is not a hard constraint; the model is free
@@ -62,25 +62,6 @@ becomes less reliable on subtle, multi-step contradictions.
 | Citation enforcement | Inside retry loop | Same retry contract as Pydantic errors; mirrors §7.3.1. |
 | `<thinking>` block | Required in prompt | Cross-source needs CoT; opposite of `ingest_synthesize.md` (which forbids it). |
 | Source-page paths | Slug-derive from title | Same default in `derive_default_path()`; caller can override via `sources_paths`. |
-
-## Findings
-
-- **Vanilla synthesis hit the 3-attempt cap and fell back to draft.**
-  Cell 4's auto-derived slugs are 30–55 chars long
-  (`sources/marginalia-engine-architecture-and-model-selection`,
-  etc.). The verifier rejected each attempt with
-  `missing_source_citation` — the model didn't faithfully cite all
-  three long paths. Mitigation: pass shorter explicit paths via
-  `sources_paths=` when slugs derived from titles are unwieldy.
-  The hinted variant (cell 6) and Analysis variant (cell 7)
-  succeeded in 2 attempts because they had a stronger unifying frame.
-- **Contradiction handling worked cleanly.** Sonnet detected the
-  binary Q2-vs-Q3 contradiction and populated `contradicts` on the
-  output page in 2 attempts. The §7.2 assignment of Sonnet for
-  cross-source reasoning holds for clean binary contradictions.
-- **Cost ranges $0.05–$0.13 per synthesis** at Sonnet 4.6 with
-  retries. The 3-attempt vanilla case was the most expensive
-  ($0.127); successful 2-attempt runs averaged ~$0.08.
 
 ## Caveats
 

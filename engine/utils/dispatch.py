@@ -10,10 +10,12 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import TYPE_CHECKING
+from urllib.parse import urlparse
 
 from engine.adapters._template.contract import ExtractedContent
 from engine.adapters.local_fs.image import extract_image
 from engine.adapters.local_fs.pdf import extract_pdf
+from engine.adapters.youtube.extractor import extract_youtube
 
 if TYPE_CHECKING:
     from anthropic import Anthropic
@@ -21,10 +23,21 @@ if TYPE_CHECKING:
 _TEXT_EXTENSIONS = {".md", ".txt"}
 _PDF_EXTENSIONS = {".pdf"}
 _IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
+_YOUTUBE_HOSTS = {
+    "youtube.com",
+    "www.youtube.com",
+    "m.youtube.com",
+    "youtu.be",
+    "music.youtube.com",
+}
 
 
 class UnsupportedExtensionError(ValueError):
     """Raised when ``extract`` is asked about an unrouted extension."""
+
+
+class UnsupportedUrlError(ValueError):
+    """Raised when ``extract_url`` is asked about an unrouted URL."""
 
 
 def _extract_text_passthrough(path: Path) -> ExtractedContent:
@@ -64,4 +77,31 @@ def extract(
     )
 
 
-__all__ = ["UnsupportedExtensionError", "extract"]
+async def extract_url(
+    url: str,
+    *,
+    client: Anthropic | None = None,
+    summary_model: str | None = "claude-haiku-4-5",
+) -> ExtractedContent:
+    """Route a remote URL to the right adapter by URL pattern.
+
+    Today only YouTube is supported. Anything else raises
+    ``UnsupportedUrlError`` rather than silently passing through —
+    silent fallback would mask coverage gaps.
+    """
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    if host in _YOUTUBE_HOSTS:
+        return await extract_youtube(url, client=client, summary_model=summary_model)
+
+    raise UnsupportedUrlError(
+        f"no adapter registered for host {host!r}; supported: {sorted(_YOUTUBE_HOSTS)}"
+    )
+
+
+__all__ = [
+    "UnsupportedExtensionError",
+    "UnsupportedUrlError",
+    "extract",
+    "extract_url",
+]
