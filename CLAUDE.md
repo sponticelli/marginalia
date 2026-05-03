@@ -111,6 +111,8 @@ The engine writes into the content repo via git through `marginalia.upsert_page`
   - `poc-wiki/{purpose.md,AGENTS.md}` — wiki-level config the agents read at runtime (loaded by `engine.models.wiki_config.MarginaliaConfig`).
 
   **Don't conflate `~/wiki-raw/` (inbox) with `sources/raw/` (in-wiki durable archive of originals).** Design.md uses both; they're different things. The PoC only models the inbox role under `poc-wiki/raw/`.
+
+- `notebooks/data/transcripts/` is a **separate sibling** of `poc-wiki/`, not under `poc-wiki/raw/`. It caches HTTP-fetched upstream data (today YouTube transcripts via `youtube-transcript-api`; future Notion / Slack snapshots) for offline reproducibility. These fixtures have no production analogue — production fetches live from the upstream API. Adapters consume them via per-adapter paths (e.g. `extract_youtube(cached_segments=...)`), never via the file-extension dispatcher. Keeping them out of `raw/` prevents the local-fs MCP from exposing them as if they were drop-in sources. Same pattern applies to any future HTTP-fetch fixture caches (sibling under `notebooks/data/`, not under `raw/`).
 - `.env` is gitignored; never commit secrets.
 
 ## CLI surface (target — most not yet implemented)
