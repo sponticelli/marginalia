@@ -11,7 +11,7 @@ Both paths exercised on the same `list_files` + `read_file` tools, same
 
 | Dimension | Messages API tool_use loop | Subprocess + stdio FastMCP |
 |---|---|---|
-| Wall time (smoke) | 5.49s (2 tool calls + final answer) | 5.0ms (build_server) |
+| Wall time (smoke) | 5.71s (2 tool calls + final answer) | 5.8ms (build_server) |
 | IPC overhead | none (in-process Python calls) | stdio JSON-RPC |
 | Client compatibility | any process using the Anthropic SDK | any MCP client |
 | Code complexity | explicit loop with tool_use parsing | module + subprocess.Popen |
@@ -44,8 +44,8 @@ collect partial success without a giant try/except wrapper.
 | Path | Cost (USD) |
 |---|---|
 | Transcript fetch (cached fixture, no LLM) | $0.000000 |
-| Haiku 4.5 summary on 3Blue1Brown (200-word budget) | $0.007574 |
-| Haiku 4.5 summary on synthetic CJK (400-word budget) | $0.001163 |
+| Haiku 4.5 summary on 3Blue1Brown (200-word budget) | $0.007584 |
+| Haiku 4.5 summary on synthetic CJK (400-word budget) | $0.001228 |
 
 Latin-vs-CJK budget asymmetry: the 400-word CJK budget produces ~2×
 the output tokens of the Latin path, but the input transcript is also
