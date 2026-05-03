@@ -57,6 +57,6 @@ Rasterization costs **1.0×** the native document-block path on `scanned.pdf`.
 from pathlib import Path
 from engine.utils.dispatch import extract
 
-content = extract(Path("notebooks/data/pdfs/clean.pdf"))
+content = extract(Path("notebooks/data/poc-wiki/raw/clean.pdf"))
 print(content.extraction_method, len(content.text), content.cost_usd)
 ```

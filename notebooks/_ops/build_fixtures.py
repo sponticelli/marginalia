@@ -6,9 +6,9 @@ Run from the repo root:
 
 Outputs (committed via git-lfs per .gitattributes):
 
-- notebooks/data/pdfs/clean.pdf       — text-rich 2-page PDF
-- notebooks/data/pdfs/scanned.pdf     — same content rasterized (no text layer)
-- notebooks/data/images/architecture.png — 4-box system diagram
+- notebooks/data/poc-wiki/raw/clean.pdf       — text-rich 2-page PDF
+- notebooks/data/poc-wiki/raw/scanned.pdf     — same content rasterized (no text layer)
+- notebooks/data/poc-wiki/raw/architecture.png — 4-box system diagram
 
 Idempotent: re-running overwrites. Uses only matplotlib + pypdfium2 +
 PIL — no extra dependencies. The "scanned" PDF is built by rasterizing
@@ -26,8 +26,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 from PIL import Image
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-PDF_DIR = REPO_ROOT / "notebooks" / "data" / "pdfs"
-IMG_DIR = REPO_ROOT / "notebooks" / "data" / "images"
+RAW_DIR = REPO_ROOT / "notebooks" / "data" / "poc-wiki" / "raw"
 
 
 CLEAN_PDF_PAGE_1 = """
@@ -166,9 +165,9 @@ def build_architecture_png(out: Path) -> None:
 
 
 def main() -> None:
-    clean_pdf = PDF_DIR / "clean.pdf"
-    scanned_pdf = PDF_DIR / "scanned.pdf"
-    arch_png = IMG_DIR / "architecture.png"
+    clean_pdf = RAW_DIR / "clean.pdf"
+    scanned_pdf = RAW_DIR / "scanned.pdf"
+    arch_png = RAW_DIR / "architecture.png"
 
     build_clean_pdf(clean_pdf)
     build_scanned_pdf(clean_pdf, scanned_pdf)
