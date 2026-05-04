@@ -89,15 +89,54 @@ def _parse_json_object(raw: str) -> dict:
 
 
 def build_analyze_system(prompt: Prompt, config: MarginaliaConfig) -> str:
-    """Compose the analyze system prompt with the wiki's purpose + style guide.
+    """Compose the analyze system prompt as a single string.
 
-    Kept as a pure helper so the cache layer can hash it deterministically.
+    Kept for tests and string-mode call sites. Production calls use
+    ``build_analyze_system_blocks`` so Anthropic's prompt cache (L3,
+    design §7.6) can attach to the wiki-config tail.
     """
     return (
         prompt.system
         + f"\n\n<wiki_purpose>\n{config.purpose_body}\n</wiki_purpose>"
         + f"\n\n<style_guide>\n{config.agents_body}\n</style_guide>"
     )
+
+
+def build_analyze_system_blocks(prompt: Prompt, config: MarginaliaConfig) -> list[dict]:
+    """Compose the analyze system prompt as cacheable Anthropic content blocks.
+
+    Returns a single text block whose tail is marked
+    ``cache_control: {"type": "ephemeral"}`` — Anthropic's prompt cache
+    will reuse the prefix on subsequent calls with the same content,
+    cutting input-token cost on every ingest after the first.
+
+    The combined block must clear Anthropic's per-model minimum
+    (~1024 tokens for Haiku/Sonnet 4.x); the wiki config bodies
+    typically push it well past that. Below the minimum the block is
+    silently not cached — no error.
+    """
+    text = build_analyze_system(prompt, config)
+    return [
+        {
+            "type": "text",
+            "text": text,
+            "cache_control": {"type": "ephemeral"},
+        }
+    ]
+
+
+def _record_usage(usage_obj: object, out: dict) -> None:
+    """Populate ``out`` with token counts from an Anthropic usage object.
+
+    Cache-related fields default to 0 when the SDK omits them (older
+    clients, non-cacheable calls) — keeps downstream code simple.
+    """
+    out["input_tokens"] = int(getattr(usage_obj, "input_tokens", 0) or 0)
+    out["output_tokens"] = int(getattr(usage_obj, "output_tokens", 0) or 0)
+    out["cache_creation_input_tokens"] = int(
+        getattr(usage_obj, "cache_creation_input_tokens", 0) or 0
+    )
+    out["cache_read_input_tokens"] = int(getattr(usage_obj, "cache_read_input_tokens", 0) or 0)
 
 
 async def analyze_source(
@@ -109,18 +148,27 @@ async def analyze_source(
     prompt: Prompt | None = None,
     model: str | None = None,
     max_tokens: int = DEFAULT_MAX_TOKENS,
+    prompt_cache: bool = True,
+    out_usage: dict | None = None,
 ) -> SourceAnalysis:
     """Run the cacheable ingest analyze step on one source body.
 
-    Pure over `(content, source_kind, prompt.version)` — safe to L1-cache
-    on `sha256(content) + CACHE_VERSION + prompt.version`. `temperature=0`
-    is passed when the model accepts it (Haiku 4.5, Sonnet 4.6) and
-    omitted for Opus 4.7, which deprecated the parameter; see
-    `engine.utils.api_compat.temperature_kwargs` for the per-model rule.
+    Pure over ``(content, source_kind, prompt.version)`` — safe to
+    L1-cache on ``sha256(content_sha | CACHE_VERSION | prompt.name@version)``.
+    ``temperature=0`` is passed when the model accepts it (Haiku 4.5,
+    Sonnet 4.6) and omitted for Opus 4.7, which deprecated it.
 
-    `client` and `prompt` are injected for testability; both default to
-    real Anthropic / on-disk prompt loading. The content hash is computed
-    here (never trusted from the model) so it can serve as the cache key.
+    L3 (Anthropic's native prompt cache) is on by default via
+    ``prompt_cache=True``: the system prompt is sent as a content
+    block list with ``cache_control: ephemeral``. Pass ``False`` to
+    fall back to legacy string-mode (existing tests, hosts that don't
+    speak the blocks form). When ``out_usage`` is supplied the caller
+    receives input/output/cache_creation/cache_read token counts —
+    needed to prove L3 is firing in receipts.
+
+    ``client`` and ``prompt`` are injected for testability. The
+    content hash is computed here (never trusted from the model) so
+    it can serve as the cache key.
     """
     prompt = prompt or load_prompt(PROMPT_NAME)
     if client is None:
@@ -135,7 +183,11 @@ async def analyze_source(
         content=content,
         schema_json=json.dumps(SourceAnalysis.model_json_schema()),
     )
-    system = build_analyze_system(prompt, config)
+    system: str | list[dict]
+    if prompt_cache:
+        system = build_analyze_system_blocks(prompt, config)
+    else:
+        system = build_analyze_system(prompt, config)
 
     chosen_model = model or prompt.model or DEFAULT_MODEL
     resp = client.messages.create(
@@ -145,6 +197,8 @@ async def analyze_source(
         system=system,
         messages=[{"role": "user", "content": user_msg}],
     )
+    if out_usage is not None:
+        _record_usage(resp.usage, out_usage)
     data = _parse_json_object(resp.content[0].text)
     data["content_sha256"] = sha
     return SourceAnalysis.model_validate(data)
@@ -157,5 +211,6 @@ __all__ = [
     "SourceAnalysis",
     "analyze_source",
     "build_analyze_system",
+    "build_analyze_system_blocks",
     "compute_content_sha256",
 ]

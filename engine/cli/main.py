@@ -9,6 +9,7 @@ from pathlib import Path
 import typer
 from rich.console import Console
 
+from engine.cli.cache import app as cache_app
 from engine.cli.jobs import app as jobs_app
 
 app = typer.Typer(
@@ -17,6 +18,7 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 app.add_typer(jobs_app, name="jobs")
+app.add_typer(cache_app, name="cache")
 console = Console()
 
 
