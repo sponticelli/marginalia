@@ -48,7 +48,7 @@
 | ingest_history rows | 4 |
 | cost_records calls (incl. cached) | 10 |
 | ...of which cached hits | 0 |
-| total cost (USD) | $0.2293 |
+| total cost (USD) | $0.2456 |
 | audit_events rows (all types) | 18 |
 | ...contradiction_found | 2 |
 | ...hook_failed | 2 |
@@ -57,8 +57,8 @@
 
 | Model | Calls | Cost (USD) |
 |---|---|---|
-| `claude-opus-4-7` | 2 | $0.1498 |
-| `claude-sonnet-4-6` | 4 | $0.0627 |
+| `claude-opus-4-7` | 2 | $0.1646 |
+| `claude-sonnet-4-6` | 4 | $0.0641 |
 | `claude-haiku-4-5` | 4 | $0.0168 |
 
 ## Design decisions
