@@ -28,6 +28,8 @@ JobKind = Literal[
     "lint",
     "scaffold",
     "resync",
+    "pr_create",
+    "archive",
     "_mock_flaky",  # demo-only; produces deterministic failures for retry tests
 ]
 

@@ -134,7 +134,23 @@ async def _handle_ingest(payload: dict, ctx: WorkerCtx, job_id: str) -> dict:
             job_id=job_id,
         )
 
-    return {"summary": summary, **result}
+    # Optional PR open: enqueue a child pr_create job whose dispatcher
+    # owns the git/gh subprocess work. Decoupling lets PR opening retry
+    # independently of ingest (gh rate limits, network blips) and lets
+    # batches eventually share one PR per page-set rather than one each.
+    pr_child_id: str | None = None
+    if payload.get("open_pr") and "path" in result:
+        pr_child_id = _enqueue_pr_create_for_page(
+            ctx=ctx,
+            parent_job_id=job_id,
+            source_ref=user_input,
+            result=result,
+        )
+
+    out = {"summary": summary, **result}
+    if pr_child_id is not None:
+        out["pr_create_job_id"] = pr_child_id
+    return out
 
 
 async def _handle_lint(payload: dict, ctx: WorkerCtx, job_id: str) -> dict:
@@ -378,6 +394,136 @@ async def _handle_synthesis_gated(payload: dict, ctx: WorkerCtx, job_id: str) ->
     return await _handle_synthesis(payload, ctx, job_id)
 
 
+async def _handle_archive(payload: dict, ctx: WorkerCtx, job_id: str) -> dict:
+    """Move a wiki page to its ``archived/`` sibling and rewrite all backlinks.
+
+    Payload shape:
+        {
+            "page": "knowledge/decisions/foo",   # wikilink (no .md)
+            "reason": "upstream-deleted" | "superseded" | "manual",
+            # optional:
+            "archived_subdir": "archived",       # default
+        }
+
+    The atomic plan-then-apply primitives in ``backlink_rewrite``
+    already handle correctness; the dispatcher's job is to call them
+    from the queue, then emit one ``audit_events`` row per archive so
+    the dashboard surfaces what happened.
+    """
+    from datetime import date as _date
+
+    from engine.models.pages import ArchivedReason
+    from engine.utils.backlink_rewrite import (
+        apply_archive_patchset,
+        compute_archive_patchset,
+    )
+
+    target = payload["page"]
+    reason = ArchivedReason(payload["reason"])
+    archived_subdir = payload.get("archived_subdir", "archived")
+
+    patchset = compute_archive_patchset(
+        ctx.wiki_root,
+        target,
+        archived_on=_date.today(),
+        reason=reason,
+        archived_subdir=archived_subdir,
+    )
+    apply_archive_patchset(patchset)
+
+    if ctx.audit_writer is not None:
+        ctx.audit_writer.record_event(
+            event_type="archived",
+            metadata={
+                "page": target,
+                "new_wikilink": patchset.new_wikilink,
+                "reason": reason.value,
+                "referencing_pages_rewritten": [
+                    str(p.path.relative_to(ctx.wiki_root)) for p in patchset.referencing_patches
+                ],
+            },
+            job_id=job_id,
+        )
+
+    return {
+        "page": target,
+        "new_wikilink": patchset.new_wikilink,
+        "reason": reason.value,
+        "referencing_count": len(patchset.referencing_patches),
+    }
+
+
+async def _handle_pr_create(payload: dict, ctx: WorkerCtx, job_id: str) -> dict:
+    """Open a PR for one or more wiki page changes.
+
+    Payload shape:
+        {
+            "title": str,
+            "body": str,
+            "branch": str,
+            "files": list[str],   # wiki-relative or absolute, see open_pr
+            # optional:
+            "base": str,          # default "main"
+            "remote": str,        # default "origin"
+        }
+
+    Returns ``{"url": str, "branch": str}``. Raises ``OpenPrError`` on
+    git/gh failure — the queue's retry ladder will pick it up. Audit
+    events for failure are written by ``open_pr`` itself when an
+    ``audit_writer`` is wired in ``ctx``.
+    """
+    from engine.tools.open_pr import open_pr
+
+    pr = open_pr(
+        title=payload["title"],
+        body=payload["body"],
+        branch=payload["branch"],
+        files=list(payload["files"]),
+        wiki_root=ctx.wiki_root,
+        base=payload.get("base", "main"),
+        remote=payload.get("remote", "origin"),
+        audit_writer=ctx.audit_writer,
+        job_id=job_id,
+    )
+    return {"url": pr.url, "branch": pr.branch}
+
+
+def _enqueue_pr_create_for_page(
+    *,
+    ctx: WorkerCtx,
+    parent_job_id: str,
+    source_ref: str,
+    result: dict,
+) -> str:
+    """Build the pr_create payload for a freshly-ingested page and enqueue it.
+
+    Centralized so the title/body/branch convention stays consistent
+    whether the parent is ``ingest`` or ``synthesis`` (Phase 3 may grow
+    a synthesis-time PR open too).
+    """
+    from pathlib import Path as _Path
+
+    from engine.jobs import connect, enqueue
+
+    page_path = result["path"]
+    pr_payload = {
+        "title": f"ingest: {result.get('title', page_path)}",
+        "body": (
+            f"Ingested from `{source_ref}` via the queue.\n\n"
+            f"- **Page:** `{page_path}`\n"
+            f"- **Status:** `{result.get('status', '?')}`\n"
+            f"- **Parent job:** `{parent_job_id}`\n"
+        ),
+        "branch": f"agent/ingest-{_Path(page_path).name}",
+        "files": [f"{page_path}.md"],
+    }
+    conn = connect(ctx.db_path)
+    try:
+        return enqueue(conn, "pr_create", pr_payload, parent_id=parent_job_id)
+    finally:
+        conn.close()
+
+
 async def _handle_mock_flaky(payload: dict, ctx: WorkerCtx, job_id: str) -> dict:
     """Demo handler: deterministically fails on early attempts.
 
@@ -428,6 +574,8 @@ register_dispatcher("ingest", _handle_ingest)
 register_dispatcher("ingest_batch", _handle_ingest_batch)
 register_dispatcher("synthesis", _handle_synthesis_gated)
 register_dispatcher("lint", _handle_lint)
+register_dispatcher("pr_create", _handle_pr_create)
+register_dispatcher("archive", _handle_archive)
 register_dispatcher("_mock_flaky", _handle_mock_flaky)
 
 

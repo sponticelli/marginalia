@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>The Compounding Wiki — Why Knowledge Decays</title>
+<meta name="author" content="Jane Doe">
+<meta name="description" content="Notes on building a wiki that gets smarter over time.">
+</head>
+<body>
+<header>
+  <nav>
+    <a href="/home">Home</a> |
+    <a href="/about">About</a> |
+    <a href="/contact">Contact</a>
+  </nav>
+</header>
+<main>
+  <article>
+    <h1>The Compounding Wiki — Why Knowledge Decays</h1>
+    <p class="byline">By Jane Doe, May 2026</p>
+
+    <p>Most knowledge bases <em>shrink</em> in usefulness over time. The pages get
+    written once and never revisited. Within twelve months, half the content is
+    stale, contradicted, or simply wrong — and nobody knows which half.</p>
+
+    <p>A <strong>compounding wiki</strong> inverts this. Every new ingest improves
+    the value of what came before. Cross-page synthesis surfaces patterns that
+    weren't visible in the source documents. Lint catches contradictions. Archive
+    moves dead branches out of the way without breaking backlinks.</p>
+
+    <h2>Three load-bearing patterns</h2>
+
+    <ol>
+      <li><strong>Strict-schema retry.</strong> Validate every page against a
+      Pydantic schema; on failure, feed the errors back to the agent and let it
+      retry. Three attempts, then land as draft.</li>
+      <li><strong>Two-step ingest.</strong> Split analyze (cacheable, cheap) from
+      synthesize (state-dependent, expensive). Iterate on prompts cheaply.</li>
+      <li><strong>Cache-version discipline.</strong> Bump the cache version
+      whenever you edit a prompt. Otherwise old cached responses serve against
+      the new prompt — an invisible bug.</li>
+    </ol>
+
+    <p>For more, see the <a href="https://example.com/design.md">design doc</a>.</p>
+  </article>
+</main>
+<footer>
+  <p>&copy; 2026 Example Corp. All rights reserved.</p>
+  <ul>
+    <li><a href="/privacy">Privacy</a></li>
+    <li><a href="/terms">Terms</a></li>
+  </ul>
+</footer>
+</body>
+</html>

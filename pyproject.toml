@@ -22,6 +22,10 @@ dependencies = [
     "pdfplumber>=0.11",
     # Adapters
     "youtube-transcript-api>=0.6",   # YouTube transcripts (no API key needed)
+    "trafilatura>=1.12",             # web adapter: HTML fetch + main-content extraction → markdown
+    "google-api-python-client>=2.140", # google_doc + gmail adapters: Drive/Gmail REST clients
+    "google-auth-oauthlib>=1.2",     # google_doc + gmail adapters: OAuth flow + token refresh
+    "httpx>=0.27",                   # gmail/notion/slack adapters: async HTTP client where SDKs fall short
     # Job queue & retries
     "tenacity>=8.2",                 # backoff/retry decorators for the worker
     # Git/GitHub

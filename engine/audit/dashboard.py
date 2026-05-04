@@ -67,11 +67,11 @@ def _format_cost_section(audit_db_path: Path, *, days: int = 7) -> str:
     Empty DB → emits a placeholder so the section is never blank.
     """
     if not audit_db_path.is_file():
-        return f"## Cost — last {days} days\n\n" "_(audit.db not initialised yet)_\n"
+        return f"## Cost — last {days} days\n\n_(audit.db not initialised yet)_\n"
 
     rows = daily_cost_breakdown(audit_db_path, days=days)
     if not rows:
-        return f"## Cost — last {days} days\n\n" "_No LLM calls recorded in this window._\n"
+        return f"## Cost — last {days} days\n\n_No LLM calls recorded in this window._\n"
 
     lines = [f"## Cost — last {days} days", "", "| Day | Calls | Cost (USD) |", "|---|---|---|"]
     total = 0.0

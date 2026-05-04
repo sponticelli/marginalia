@@ -53,10 +53,7 @@ def _format_retrieved_block(hits: list[SearchHit], pages: list[tuple[str, str, s
     out: list[str] = []
     for hit, (path, title, body) in zip(hits, pages, strict=True):
         out.append(
-            f'<page path="{path}" score="{hit.score:.3f}">\n'
-            f"<title>{title}</title>\n"
-            f"{body}\n"
-            f"</page>"
+            f'<page path="{path}" score="{hit.score:.3f}">\n<title>{title}</title>\n{body}\n</page>'
         )
     return "\n\n".join(out)
 

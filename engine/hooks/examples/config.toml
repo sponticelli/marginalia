@@ -1,0 +1,56 @@
+# Example marginalia hook config.
+#
+# Copy this to <wiki-root>/.wiki/config.toml and edit to taste. The
+# loader (engine/hooks/config.py:load_hook_config) reads this path on
+# every worker run; missing file → no hooks fire (silent no-op).
+#
+# Two events are recognized today:
+#
+#   on_ingest_complete   — fired after every successful ingest job.
+#   on_lint_complete     — fired after every successful lint job.
+#
+# Each hook receives the event's JSON context on stdin, runs to
+# completion (or `timeout_s` seconds, whichever comes first), and is
+# judged by its exit code:
+#
+#   blocking = false  →  non-zero exit logs an audit_event but the job
+#                        still succeeds. Use this for notifications,
+#                        logging, dashboard refresh — anything where
+#                        the wiki commit is the source of truth and
+#                        the hook is decoration.
+#
+#   blocking = true   →  non-zero exit raises HookFailure, the job
+#                        moves to `failed`, and the queue's retry
+#                        ladder takes over. Use this for guardrails:
+#                        DLP gates, compliance checks, anything that
+#                        should *prevent* the commit when it trips.
+#
+# Test a hook without running a real job:
+#
+#   marginalia hooks test --event on_ingest_complete --config <this-file>
+#
+# That fires the hook with synthetic context, prints the captured
+# stdout/stderr/exit code, and exits.
+
+# ── Non-blocking notification: post to Slack on every ingest. ──
+[hooks.on_ingest_complete]
+command   = "~/.wiki/hooks/notify-slack.sh"
+blocking  = false
+timeout_s = 10
+
+# ── Blocking guardrail: refuse low-confidence ingests of sensitive
+# folders. The shipped engine/hooks/examples/gate-on-confidence.py
+# implements the canonical shape; copy it to your wiki's hooks dir.
+# Uncomment to enable.
+#
+# [hooks.on_ingest_complete]
+# command   = "~/.wiki/hooks/gate-on-confidence.py"
+# blocking  = true
+# timeout_s = 5
+
+# ── Lint completion: refresh the Dataview-rendered dashboard.md so
+# the orphans/contradictions/stale tables reflect the latest pass. ──
+[hooks.on_lint_complete]
+command   = "~/.wiki/hooks/refresh-dashboard.py"
+blocking  = false
+timeout_s = 60

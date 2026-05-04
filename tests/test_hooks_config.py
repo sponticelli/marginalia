@@ -41,7 +41,7 @@ def test_load_parses_both_events(tmp_path: Path) -> None:
 def test_load_partial_config_only_one_event(tmp_path: Path) -> None:
     cfg_path = tmp_path / "config.toml"
     cfg_path.write_text(
-        "[hooks.on_ingest_complete]\n" 'command = "echo"\n',
+        '[hooks.on_ingest_complete]\ncommand = "echo"\n',
         encoding="utf-8",
     )
     cfg = load_hook_config(cfg_path)

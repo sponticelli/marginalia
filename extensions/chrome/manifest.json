@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "Marginalia — quick capture",
+  "description": "Send the current tab (and optional selection) to your local marginalia serve endpoint with one click.",
+  "version": "0.1.0",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "contextMenus"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1/*",
+    "http://localhost/*"
+  ],
+  "action": {
+    "default_title": "Send to Marginalia",
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  }
+}
