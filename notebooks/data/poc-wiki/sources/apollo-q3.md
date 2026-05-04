@@ -26,3 +26,9 @@ New launch date: 2026-08-15. Decision logged by Priya; cross-team
 notice sent to engineering, product, and ops on 2026-04-22.
 
 The original Q2 plan is no longer valid.
+
+## Related
+
+- [[knowledge/decisions/apollo-q3-postpone]] — the decision recorded from this memo.
+- [[knowledge/decisions/apollo-q2-ship]] — the prior decision that this contradicts.
+- [[knowledge/entities/apollo-project]]

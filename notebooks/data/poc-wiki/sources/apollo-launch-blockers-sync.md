@@ -45,3 +45,8 @@ Sandro and Priya reviewed outstanding Apollo launch blockers in this sync. The t
 ## Context
 
 This meeting is part of the broader Apollo launch preparation effort. No specific blocker resolutions are recorded in this source; the primary output is the cadence and monitoring commitment.
+
+## Related
+
+- [[knowledge/entities/apollo-project]]
+- [[knowledge/decisions/apollo-q3-postpone]] — the postponement decision drew on this sync's blocker review.

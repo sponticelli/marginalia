@@ -23,3 +23,8 @@ blockers are resolved, the rollback plan is signed off, and the
 release branch is cut.
 
 Launch date: 2026-05-15. Owner of sign-off: Sandro.
+
+## Related
+
+- [[knowledge/decisions/apollo-q2-ship]] — the decision crystallized from this source.
+- [[knowledge/entities/apollo-project]] — project the launch belongs to.

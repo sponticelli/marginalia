@@ -66,3 +66,9 @@ The pipeline produces a `SourcePage` as its output artifact, stored in the wiki.
 
 - Design §8 — Adapter dispatch
 - Design §7.1 — Ingest agent contract
+
+## Related
+
+- [[knowledge/entities/marginalia-engine]]
+- [[knowledge/concepts/ingest-pipeline]]
+- [[knowledge/concepts/two-step-ingest-cacheability]]

@@ -90,6 +90,12 @@ SHA-256(content) + prompt_version + CACHE_VERSION
 
 ## Key Entities
 
-- `Marginalia engine` — the ingest and synthesis system documented here.
+- [[knowledge/entities/marginalia-engine]] — the ingest and synthesis system documented here.
 - `CACHE_VERSION` — constant controlling cache invalidation scope.
 - `Haiku 4.5`, `Sonnet 4.6`, `Opus 4.7` — Anthropic models used at different pipeline tiers.
+
+## Related
+
+- [[knowledge/decisions/engine-model-ladder]] — the per-tier model assignment.
+- [[knowledge/concepts/two-step-ingest-cacheability]] — why the analyze step is split out.
+- [[knowledge/concepts/ingest-pipeline]]
