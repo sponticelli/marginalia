@@ -46,6 +46,7 @@ DEFAULT_MAX_TOKENS = 4096
 INDEX_FILENAME = "index.md"
 PURPOSE_FILENAME = "purpose.md"
 AGENTS_FILENAME = "AGENTS.md"
+DASHBOARD_FILENAME = "dashboard.md"
 PROPOSED_SUFFIX = ".proposed"
 # How many pages to sample for the AGENTS.md prompt's body excerpt
 # section — enough to surface terminology drift, few enough to keep
@@ -53,8 +54,8 @@ PROPOSED_SUFFIX = ".proposed"
 AGENTS_SAMPLE_LIMIT = 12
 AGENTS_EXCERPT_CHARS = 600
 
-ScaffoldTarget = Literal["index", "purpose", "agents"]
-SUPPORTED_TARGETS: tuple[ScaffoldTarget, ...] = ("index", "purpose", "agents")
+ScaffoldTarget = Literal["index", "purpose", "agents", "dashboard"]
+SUPPORTED_TARGETS: tuple[ScaffoldTarget, ...] = ("index", "purpose", "agents", "dashboard")
 
 # Order pages by type in the rendered listing — matches the prompt's
 # expected section order so the LLM has fewer reordering decisions to make.
@@ -387,10 +388,58 @@ async def scaffold_agents(
     )
 
 
+async def scaffold_dashboard(
+    wiki_root: Path,
+    *,
+    config: MarginaliaConfig | None = None,  # noqa: ARG001 — kept for signature symmetry
+    audit_db_path: Path | None = None,
+    days: int = 7,
+    write: bool = True,
+) -> ScaffoldResult:
+    """Regenerate ``<wiki_root>/dashboard.md`` from current page + audit state.
+
+    Bypasses the LLM entirely: ``engine.audit.dashboard.generate_dashboard``
+    is a pure renderer that reads page frontmatter via Dataview blocks and
+    queries ``audit.db`` for the cost section. Re-running produces a
+    deterministic result (modulo the timestamp), which is why no
+    ``.proposed`` review gate exists for this target.
+
+    The ``config`` parameter is accepted for signature symmetry with the
+    other scaffold functions but is unused — the dashboard template is
+    not configurable per wiki today.
+    """
+    from engine.audit.dashboard import generate_dashboard
+
+    audit_db_path = audit_db_path or wiki_root / ".wiki" / "audit.db"
+    pages = list(walk_wiki(wiki_root))
+
+    t0 = time.perf_counter()
+    content = generate_dashboard(wiki_root, audit_db_path=audit_db_path, days=days)
+    wall = time.perf_counter() - t0
+
+    out_path = wiki_root / DASHBOARD_FILENAME
+    if write:
+        out_path.write_text(content, encoding="utf-8")
+
+    return ScaffoldResult(
+        target="dashboard",
+        out_path=out_path,
+        content=content,
+        pages_indexed=len(pages),
+        # Deterministic generator — no LLM call → zero tokens, zero cost.
+        tokens_in=0,
+        tokens_out=0,
+        cost_usd=0.0,
+        wall_seconds=wall,
+        model="(deterministic)",
+    )
+
+
 __all__ = [
     "AGENTS_FILENAME",
     "AGENTS_PROMPT_NAME",
     "AGENTS_SAMPLE_LIMIT",
+    "DASHBOARD_FILENAME",
     "DEFAULT_MAX_TOKENS",
     "DEFAULT_MODEL",
     "INDEX_FILENAME",
@@ -403,6 +452,7 @@ __all__ = [
     "ScaffoldTarget",
     "format_pages_listing",
     "scaffold_agents",
+    "scaffold_dashboard",
     "scaffold_index",
     "scaffold_purpose",
 ]

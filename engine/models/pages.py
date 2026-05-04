@@ -68,7 +68,13 @@ class ArchivedReason(StrEnum):
 
 
 class SourceRef(BaseModel):
-    """One row in the `sources:` frontmatter array (design §6.1)."""
+    """One row in the `sources:` frontmatter array (design §6.1).
+
+    ``adapter`` records which extractor produced this ref (Phase 4
+    §4.4). It's optional for backward compatibility — pages ingested
+    before the field existed will have ``adapter = None`` and will
+    fall back to URL/extension dispatch on resync.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -76,6 +82,7 @@ class SourceRef(BaseModel):
     kind: SourceKind
     captured: date
     authority: SourceAuthority
+    adapter: str | None = None
 
 
 def _validate_wikilinks(values: list[str]) -> list[str]:

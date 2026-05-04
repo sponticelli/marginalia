@@ -14,7 +14,6 @@ Each command resolves the audit-DB path in the same order as
 from __future__ import annotations
 
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -28,6 +27,7 @@ from engine.audit import (
     init_db,
     last_n_ingests,
 )
+from engine.cli.wikis import resolve_wiki_root
 
 app = typer.Typer(
     name="audit",
@@ -39,10 +39,7 @@ console = Console()
 
 def _default_db_path() -> Path:
     """Mirrors `engine.cli.jobs._default_db_path` but for `audit.db`."""
-    repo = os.environ.get("WIKI_CONTENT_REPO")
-    if repo:
-        return Path(repo) / ".wiki" / "audit.db"
-    return Path.cwd() / ".wiki" / "audit.db"
+    return resolve_wiki_root() / ".wiki" / "audit.db"
 
 
 def _ensure_db(db: Path) -> None:

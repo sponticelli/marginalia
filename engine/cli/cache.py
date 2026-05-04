@@ -21,6 +21,7 @@ from rich.console import Console
 from rich.table import Table
 
 from engine.cache.admin import clear_all, gc, stats
+from engine.cli.wikis import resolve_wiki_root
 
 app = typer.Typer(
     name="cache",
@@ -31,13 +32,11 @@ console = Console()
 
 
 def _default_cache_root() -> Path:
+    """``$MARGINALIA_CACHE_ROOT`` wins; else the active wiki's ``.wiki/cache``."""
     explicit = os.environ.get("MARGINALIA_CACHE_ROOT")
     if explicit:
         return Path(explicit)
-    repo = os.environ.get("WIKI_CONTENT_REPO")
-    if repo:
-        return Path(repo) / ".wiki" / "cache"
-    return Path.cwd() / ".wiki" / "cache"
+    return resolve_wiki_root() / ".wiki" / "cache"
 
 
 def _format_bytes(n: int) -> str:

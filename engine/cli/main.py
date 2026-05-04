@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 from pathlib import Path
 
 import typer
@@ -15,6 +14,9 @@ from engine.cli.cache import app as cache_app
 from engine.cli.hooks import app as hooks_app
 from engine.cli.jobs import app as jobs_app
 from engine.cli.serve import app as serve_app
+from engine.cli.wikis import resolve_wiki_root
+from engine.cli.wikis_cli import app as wikis_app
+from engine.cli.wikis_cli import use as use_command
 
 app = typer.Typer(
     name="marginalia",
@@ -26,12 +28,16 @@ app.add_typer(cache_app, name="cache")
 app.add_typer(audit_app, name="audit")
 app.add_typer(hooks_app, name="hooks")
 app.add_typer(serve_app, name="serve")
+app.add_typer(wikis_app, name="wikis")
 
 # Capture / staging verbs — see engine/cli/capture.py for the implementations.
 app.command("add")(capture.add)
 app.command("status")(capture.status)
 app.command("unstage")(capture.unstage)
 app.command("ingest")(capture.ingest)
+
+# Top-level shortcut for the most common multi-wiki op.
+app.command("use")(use_command)
 
 console = Console()
 
@@ -92,8 +98,7 @@ def worker(
     from engine.jobs import WorkerCtx, init_db, run_worker
     from engine.models.wiki_config import MarginaliaConfig
 
-    repo_env = os.environ.get("WIKI_CONTENT_REPO")
-    wiki_root = wiki_root or (Path(repo_env) if repo_env else Path.cwd())
+    wiki_root = resolve_wiki_root(wiki_root)
     db = db or wiki_root / ".wiki" / "jobs.db"
     init_db(db)
 
@@ -152,8 +157,7 @@ def ask(
     from engine.agents.orchestrator.main import run_orchestrator
     from engine.models.wiki_config import MarginaliaConfig
 
-    repo_env = os.environ.get("WIKI_CONTENT_REPO")
-    wiki_root = wiki_root or (Path(repo_env) if repo_env else Path.cwd())
+    wiki_root = resolve_wiki_root(wiki_root)
     config = MarginaliaConfig.load(wiki_root)
     client = Anthropic()
 
@@ -231,8 +235,7 @@ def search(
     from engine.models.pages import PageType
     from engine.tools.search import search as _search
 
-    repo_env = os.environ.get("WIKI_CONTENT_REPO")
-    wiki_root = wiki_root or (Path(repo_env) if repo_env else Path.cwd())
+    wiki_root = resolve_wiki_root(wiki_root)
 
     type_enum = PageType(type_filter) if type_filter else None
     hits = _search(query, wiki_root=wiki_root, type=type_enum, limit=limit)
@@ -263,7 +266,7 @@ def scaffold(
     target: str = typer.Option(
         "index",
         "--target",
-        help="Which meta-page to regenerate: index | purpose | agents.",
+        help="Which meta-page to regenerate: index | purpose | agents | dashboard.",
     ),
     dry_run: bool = typer.Option(
         False,
@@ -286,7 +289,7 @@ def scaffold(
 ) -> None:
     """Regenerate wiki meta-pages from current state (design §7.1).
 
-    Three targets, each with its own write contract:
+    Four targets, each with its own write contract:
 
     - ``--target index`` — fully derivable from page state. Default
       action writes ``<wiki>/index.md`` directly. ``--dry-run``
@@ -298,16 +301,19 @@ def scaffold(
     - ``--target agents`` — same recommend-then-confirm contract as
       purpose, surfaces terminology drift between the style guide
       and recent pages.
+    - ``--target dashboard`` — deterministic regenerator (no LLM
+      call). Always overwrites ``<wiki>/dashboard.md``; ``--apply``
+      and ``--dry-run`` are accepted but only ``--dry-run`` has effect
+      (skips the write).
 
     The proposal carries inline ``<!-- DRIFT: ... -->`` /
     ``<!-- EVIDENCE: ... -->`` comments anchoring each suggestion to
     the wiki state that motivated it.
     """
-    from anthropic import Anthropic
-
     from engine.agents.scaffold import (
         SUPPORTED_TARGETS,
         scaffold_agents,
+        scaffold_dashboard,
         scaffold_index,
         scaffold_purpose,
     )
@@ -323,18 +329,26 @@ def scaffold(
     if dry_run and apply:
         console.print("[red]--dry-run and --apply are mutually exclusive[/red]")
         raise typer.Exit(code=1)
-    if apply and target == "index":
+    if apply and target in ("index", "dashboard"):
         console.print(
-            "[yellow]--apply is for purpose/agents (index is always written by default); "
+            f"[yellow]--apply is for purpose/agents ({target} is always written by default); "
             "ignoring.[/yellow]"
         )
 
-    repo_env = os.environ.get("WIKI_CONTENT_REPO")
-    wiki_root = wiki_root or (Path(repo_env) if repo_env else Path.cwd())
+    wiki_root = resolve_wiki_root(wiki_root)
     config = MarginaliaConfig.load(wiki_root)
-    client = Anthropic()
+    # Dashboard is deterministic — no Anthropic client needed; lazy-init the
+    # others so a missing API key doesn't block `scaffold dashboard`.
+    client = None
+    if target != "dashboard":
+        from anthropic import Anthropic
 
-    if target == "index":
+        client = Anthropic()
+
+    if target == "dashboard":
+        write = not dry_run
+        result = asyncio.run(scaffold_dashboard(wiki_root, config=config, write=write))
+    elif target == "index":
         # Index target preserves its prior contract: --dry-run gates writing.
         write = not dry_run
         result = asyncio.run(scaffold_index(wiki_root, config=config, client=client, write=write))
@@ -385,6 +399,128 @@ def scaffold(
 
 
 @app.command()
+def log(
+    n: int = typer.Option(
+        20,
+        "-n",
+        "--limit",
+        help="How many recent ingests to show.",
+    ),
+    write: bool = typer.Option(
+        False,
+        "--write",
+        help="Also write the rendered log to <wiki>/log.md (idempotent — never appended).",
+    ),
+    wiki_root: Path = typer.Option(  # noqa: B008
+        None,
+        "--wiki-root",
+        help="Wiki content root. Default: active wiki.",
+    ),
+) -> None:
+    """Print the last N ingests for the current wiki, sourced from `audit.db`.
+
+    The log is generated on demand from the audit DB — no separate
+    file is maintained, so there's no race with the worker. With
+    ``--write``, also materialize ``<wiki>/log.md`` (overwrites any
+    prior copy; rerunning produces a byte-identical file).
+    """
+    from engine.audit.activity_log import format_activity_log, write_activity_log
+
+    wiki_root = resolve_wiki_root(wiki_root)
+    audit_db_path = wiki_root / ".wiki" / "audit.db"
+
+    body = format_activity_log(audit_db_path, limit=n)
+    console.print(body)
+
+    if write:
+        out = write_activity_log(wiki_root, audit_db_path=audit_db_path, limit=n)
+        console.print(f"\n[green]wrote →[/green] {out}")
+
+
+@app.command()
+def resync(
+    page_path: str = typer.Argument(
+        ...,
+        help="Wiki page path without .md (e.g., 'sources/youtube/some-talk').",
+    ),
+    pr: bool = typer.Option(
+        True,
+        "--pr/--no-pr",
+        help="Open a PR for the refreshed page after the ingest succeeds.",
+    ),
+    db: Path = typer.Option(  # noqa: B008
+        None,
+        "--db",
+        help="Path to jobs.db. Default: <wiki>/.wiki/jobs.db.",
+    ),
+    wiki_root: Path = typer.Option(  # noqa: B008
+        None,
+        "--wiki-root",
+        help="Wiki content root. Default: active wiki.",
+    ),
+) -> None:
+    """Re-run the original adapter against a page's first SourceRef.
+
+    Pages ingested after Phase 4 carry ``adapter`` on each SourceRef so
+    resync routes deterministically. Older pages without the field
+    fall back to URL/extension dispatch on the stored ``ref``.
+
+    The actual ingest runs through the queue (a freshly enqueued
+    ``ingest`` job) so it inherits the worker's retry, audit, and hook
+    plumbing — and a one-shot drain follows so the call feels
+    synchronous.
+    """
+    from engine.cli.capture import _drain_worker, _print_pr_url_for_chain
+    from engine.jobs import connect, enqueue, init_db
+    from engine.tools.read_page import PageNotFoundError, read_page
+
+    wiki_root = resolve_wiki_root(wiki_root)
+    db_path = db or wiki_root / ".wiki" / "jobs.db"
+    init_db(db_path)
+
+    try:
+        page, _body = read_page(page_path, wiki_root=wiki_root)
+    except PageNotFoundError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1) from exc
+
+    sources = getattr(page, "sources", None) or []
+    if not sources:
+        console.print(f"[red]page {page_path!r} has no sources to resync from[/red]")
+        raise typer.Exit(code=1)
+
+    first = sources[0]
+    ref = first.ref
+    adapter = getattr(first, "adapter", None)
+
+    if adapter:
+        console.print(f"[dim]resyncing via stored adapter [cyan]{adapter}[/cyan] → {ref}[/dim]")
+    else:
+        console.print("[yellow]no stored adapter — falling back to URL/extension dispatch[/yellow]")
+
+    # Re-run through the queue using the existing ingest chain. The chain
+    # already detects URL vs path and dispatches; the only thing we lose
+    # by going via "ingest" rather than a custom resync handler is the
+    # ability to force a stored adapter that disagrees with the ref.
+    # That edge case (a Notion page ID stored as a bare string) is rare
+    # enough that we leave it for a follow-up if it actually bites.
+    conn = connect(db_path)
+    try:
+        job_id = enqueue(
+            conn,
+            "ingest",
+            {"input": ref, "hint": f"resync of {page_path}", "open_pr": pr},
+        )
+    finally:
+        conn.close()
+
+    console.print(f"[green]enqueued resync → ingest job [cyan]{job_id[:8]}[/cyan][/green]")
+    _drain_worker(db_path, wiki_root)
+    if pr:
+        _print_pr_url_for_chain(db_path, parent_job_id=job_id)
+
+
+@app.command()
 def lint(
     scope: str | None = typer.Option(
         None,
@@ -427,8 +563,7 @@ def lint(
     )
     from engine.utils.wiki_walker import walk_wiki
 
-    repo_env = os.environ.get("WIKI_CONTENT_REPO")
-    wiki_root = wiki_root or (Path(repo_env) if repo_env else Path.cwd())
+    wiki_root = resolve_wiki_root(wiki_root)
 
     if scope in ("stale", "orphans"):
         # Cheap pure-Python paths; skip the Opus call entirely.

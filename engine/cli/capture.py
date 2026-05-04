@@ -20,7 +20,6 @@ containing the URL) — the actual fetch is deferred to ingest time so
 from __future__ import annotations
 
 import asyncio
-import os
 import shutil
 from pathlib import Path
 
@@ -28,23 +27,24 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from engine.cli.wikis import DEFAULT_RAW_PATH, resolve_raw_path, resolve_wiki_root
 from engine.jobs import connect, enqueue, init_db
 
-DEFAULT_INBOX = Path.home() / "wiki-raw"
+# Kept for backward-compat callers; identical to wikis.DEFAULT_RAW_PATH.
+DEFAULT_INBOX = DEFAULT_RAW_PATH
 URL_MARKER_SUFFIX = ".url"
 
 console = Console()
 
 
 def _inbox() -> Path:
-    """Resolve the staging inbox.
+    """Resolve the staging inbox via the multi-wiki resolver.
 
-    Priority: ``$WIKI_RAW_PATH`` env var → ``~/wiki-raw``. The directory
-    is created lazily by ``add`` — other verbs just enumerate what's
-    there.
+    Priority (per ``engine.cli.wikis.resolve_raw_path``): per-wiki
+    override in ``wikis.toml`` → ``$WIKI_RAW_PATH`` env var → default
+    ``~/wiki-raw``. The directory is created lazily by ``add``.
     """
-    env = os.environ.get("WIKI_RAW_PATH")
-    return Path(env).expanduser() if env else DEFAULT_INBOX
+    return resolve_raw_path()
 
 
 def _is_url(s: str) -> bool:
@@ -194,8 +194,7 @@ def _run_analyse_only(target: str) -> None:
     from engine.models.wiki_config import MarginaliaConfig
     from engine.utils.dispatch import extract, extract_url
 
-    repo_env = os.environ.get("WIKI_CONTENT_REPO")
-    wiki_root = Path(repo_env) if repo_env else Path.cwd()
+    wiki_root = resolve_wiki_root()
     config = MarginaliaConfig.load(wiki_root)
     client = Anthropic()
 
@@ -321,8 +320,7 @@ def ingest(
         console.print("[yellow]no sources to ingest[/yellow]")
         raise typer.Exit(code=1)
 
-    repo_env = os.environ.get("WIKI_CONTENT_REPO")
-    wiki_root = wiki_root_opt or (Path(repo_env) if repo_env else Path.cwd())
+    wiki_root = resolve_wiki_root(wiki_root_opt)
     db_path = db or wiki_root / ".wiki" / "jobs.db"
     init_db(db_path)
 

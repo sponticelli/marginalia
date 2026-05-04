@@ -12,12 +12,12 @@ Future verbs (``list``, ``validate``) can mount here as needed.
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 
 import typer
 from rich.console import Console
 
+from engine.cli.wikis import resolve_wiki_root
 from engine.hooks.config import HOOK_EVENTS, load_hook_config
 from engine.hooks.dispatcher import HookDispatcher
 
@@ -30,10 +30,8 @@ console = Console()
 
 
 def _default_config_path() -> Path:
-    """Resolve the default hook-config path: $WIKI_CONTENT_REPO/.wiki/config.toml."""
-    repo = os.environ.get("WIKI_CONTENT_REPO")
-    base = Path(repo) if repo else Path.cwd()
-    return base / ".wiki" / "config.toml"
+    """Resolve the active wiki's hook-config path."""
+    return resolve_wiki_root() / ".wiki" / "config.toml"
 
 
 def _synthetic_context(event: str) -> dict:

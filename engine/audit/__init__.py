@@ -13,6 +13,12 @@ compliance queries, and the dashboard's cost block all read from here.
 
 from __future__ import annotations
 
+from engine.audit.activity_log import (
+    DEFAULT_LIMIT,
+    LOG_FILENAME,
+    format_activity_log,
+    write_activity_log,
+)
 from engine.audit.dashboard import DATAVIEW_BLOCKS, generate_dashboard
 from engine.audit.db import DDL, connect, init_db
 from engine.audit.queries import (
@@ -27,13 +33,17 @@ from engine.audit.writer import AuditWriter
 __all__ = [
     "DATAVIEW_BLOCKS",
     "DDL",
+    "DEFAULT_LIMIT",
+    "LOG_FILENAME",
     "AuditWriter",
     "CostByModel",
     "connect",
     "cost_summary",
     "daily_cost_breakdown",
     "events_by_type",
+    "format_activity_log",
     "generate_dashboard",
     "init_db",
     "last_n_ingests",
+    "write_activity_log",
 ]

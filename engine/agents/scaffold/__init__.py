@@ -4,6 +4,7 @@ from engine.agents.scaffold.main import (
     AGENTS_FILENAME,
     AGENTS_PROMPT_NAME,
     AGENTS_SAMPLE_LIMIT,
+    DASHBOARD_FILENAME,
     DEFAULT_MAX_TOKENS,
     DEFAULT_MODEL,
     INDEX_FILENAME,
@@ -16,6 +17,7 @@ from engine.agents.scaffold.main import (
     ScaffoldTarget,
     format_pages_listing,
     scaffold_agents,
+    scaffold_dashboard,
     scaffold_index,
     scaffold_purpose,
 )
@@ -24,6 +26,7 @@ __all__ = [
     "AGENTS_FILENAME",
     "AGENTS_PROMPT_NAME",
     "AGENTS_SAMPLE_LIMIT",
+    "DASHBOARD_FILENAME",
     "DEFAULT_MAX_TOKENS",
     "DEFAULT_MODEL",
     "INDEX_FILENAME",
@@ -36,6 +39,7 @@ __all__ = [
     "ScaffoldTarget",
     "format_pages_listing",
     "scaffold_agents",
+    "scaffold_dashboard",
     "scaffold_index",
     "scaffold_purpose",
 ]

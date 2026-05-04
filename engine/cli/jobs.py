@@ -15,13 +15,13 @@ file is auto-created on first use via ``init_db``.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import typer
 from rich.console import Console
 from rich.table import Table
 
+from engine.cli.wikis import resolve_wiki_root
 from engine.jobs import (
     JobStatus,
     cancel_pending,
@@ -43,16 +43,13 @@ console = Console()
 
 
 def _default_db_path() -> Path:
-    """Resolve the default jobs.db location.
+    """Resolve the default jobs.db location via the multi-wiki resolver.
 
-    Priority: explicit --db (handled by callers) → $WIKI_CONTENT_REPO/.wiki/jobs.db
-    → ./.wiki/jobs.db (cwd fallback for the PoC). The path is *not*
+    Priority: explicit --db (handled by callers) → active wiki's
+    ``.wiki/jobs.db`` (per ``resolve_wiki_root``). The path is *not*
     created here; callers run ``init_db`` if needed.
     """
-    repo = os.environ.get("WIKI_CONTENT_REPO")
-    if repo:
-        return Path(repo) / ".wiki" / "jobs.db"
-    return Path.cwd() / ".wiki" / "jobs.db"
+    return resolve_wiki_root() / ".wiki" / "jobs.db"
 
 
 def _ensure_db(db: Path) -> None:

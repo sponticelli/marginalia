@@ -59,17 +59,30 @@ async def run_ingest_chain(
     from engine.agents.synthesis.cross_source import derive_default_path
     from engine.models.pages import SourceKind
     from engine.tools.upsert_page import upsert_page
-    from engine.utils.dispatch import extract, extract_url
+    from engine.utils.dispatch import (
+        Adapter,
+        extract,
+        extract_url,
+        route_path,
+        route_url,
+    )
 
     is_url = user_input.startswith(("http://", "https://"))
+    # Decide the adapter *before* doing the work so we can stamp it onto
+    # SourceRefs after synthesis. This is what `marginalia resync` reads
+    # to pick the same adapter again deterministically.
+    adapter: Adapter
     if is_url:
+        adapter = route_url(user_input)
         extracted = await extract_url(user_input, client=client)
     else:
+        adapter = route_path(user_input)
         extracted = extract(Path(user_input), client=client)
 
     if extracted.failure_reason:
         return f"extraction failed: {extracted.failure_reason}", {
             "extraction_method": extracted.extraction_method,
+            "adapter": adapter,
             "failure_reason": extracted.failure_reason,
         }
 
@@ -80,6 +93,14 @@ async def run_ingest_chain(
     page, body, _log = await synthesize_page(
         analysis, config, hint=hint, client=client, on_cost=on_cost
     )
+
+    # Stamp the adapter onto every SourceRef whose `ref` matches the
+    # input we just processed. The LLM doesn't know about adapters; we
+    # patch them in here so resync has a deterministic routing key.
+    for source in page.sources:
+        if source.ref == user_input and source.adapter is None:
+            source.adapter = adapter
+
     page_path = derive_default_path(page)
 
     upsert_page(
@@ -95,6 +116,7 @@ async def run_ingest_chain(
         "title": page.title,
         "content_sha256": analysis.content_sha256,
         "confidence": page.confidence.value if page.confidence else None,
+        "adapter": adapter,
     }
 
 

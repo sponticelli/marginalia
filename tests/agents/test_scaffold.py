@@ -18,6 +18,7 @@ import pytest
 
 from engine.agents.scaffold import (
     AGENTS_FILENAME,
+    DASHBOARD_FILENAME,
     INDEX_FILENAME,
     PROPOSED_SUFFIX,
     PURPOSE_FILENAME,
@@ -25,6 +26,7 @@ from engine.agents.scaffold import (
     ScaffoldResult,
     format_pages_listing,
     scaffold_agents,
+    scaffold_dashboard,
     scaffold_index,
     scaffold_purpose,
 )
@@ -233,9 +235,55 @@ async def test_scaffold_agents_includes_page_excerpts_in_prompt(wiki_copy: Path)
     assert "customer" in user_msg.lower()
 
 
+# ─── scaffold_dashboard ────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_scaffold_dashboard_writes_dashboard_md(wiki_copy: Path) -> None:
+    """Default write=True regenerates <wiki>/dashboard.md without an LLM call."""
+    result = await scaffold_dashboard(wiki_copy)
+
+    assert isinstance(result, ScaffoldResult)
+    assert result.target == "dashboard"
+    assert result.out_path == wiki_copy / DASHBOARD_FILENAME
+    assert result.out_path.is_file()
+    assert result.cost_usd == 0.0
+    assert result.tokens_in == 0
+    assert result.tokens_out == 0
+    assert result.model == "(deterministic)"
+
+    body = result.out_path.read_text()
+    assert "Wiki Dashboard" in body
+    # Dataview blocks are part of the deterministic template.
+    assert "```dataview" in body
+
+
+@pytest.mark.asyncio
+async def test_scaffold_dashboard_dry_run_skips_write(wiki_copy: Path) -> None:
+    """write=False returns content but doesn't touch disk."""
+    target = wiki_copy / DASHBOARD_FILENAME
+    assert not target.exists()
+
+    result = await scaffold_dashboard(wiki_copy, write=False)
+
+    assert "Wiki Dashboard" in result.content
+    assert not target.exists()
+
+
+@pytest.mark.asyncio
+async def test_scaffold_dashboard_is_idempotent_modulo_timestamp(wiki_copy: Path) -> None:
+    """Two consecutive runs differ only in the embedded ``Generated:`` line."""
+    r1 = await scaffold_dashboard(wiki_copy)
+    r2 = await scaffold_dashboard(wiki_copy)
+    # Strip the timestamp line and compare the rest.
+    body1 = "\n".join(line for line in r1.content.splitlines() if "Generated:" not in line)
+    body2 = "\n".join(line for line in r2.content.splitlines() if "Generated:" not in line)
+    assert body1 == body2
+
+
 # ─── targets registry ──────────────────────────────────────────────
 
 
-def test_supported_targets_lists_all_three() -> None:
-    """SUPPORTED_TARGETS now covers index, purpose, and agents."""
-    assert set(SUPPORTED_TARGETS) == {"index", "purpose", "agents"}
+def test_supported_targets_lists_all_four() -> None:
+    """SUPPORTED_TARGETS now covers index, purpose, agents, dashboard."""
+    assert set(SUPPORTED_TARGETS) == {"index", "purpose", "agents", "dashboard"}
