@@ -36,8 +36,8 @@ total) — it just dispatches. Subagents do the heavy work.
 
 | Path | Tokens (in/out) | Cost (USD) | Wall |
 |---|---|---|---|
-| Single-question on compound | 2056/304 | $0.010728 | 4.92s |
-| Decomposition (2 subs) on compound | 4100/426 | $0.018690 | 9.92s |
+| Single-question on compound | 2056/299 | $0.010653 | 4.42s |
+| Decomposition (2 subs) on compound | 4100/415 | $0.018525 | 9.06s |
 
 Decomposition pays an extra Sonnet call for the split. The win is parallel
 sub-retrievals via `asyncio.gather` — pays off when sub-queries hit
@@ -52,7 +52,7 @@ Question: "what's our exposure to the EU AI Act?" against the 5-page wiki.
 - Suggested ingests included specific URLs and `search:` hints.
 - Cost of the gap signal: $0.000000.
 - After hand-curating an `EU AI Act overview` SourcePage and re-querying:
-  returned **QaAnswer** with 2 citations, cost $0.009762.
+  returned **QaAnswer** with 2 citations, cost $0.009657.
 
 The loop closed: gap signal → ingest → answer. The §10I scenario works.
 
