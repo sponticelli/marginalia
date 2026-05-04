@@ -1,25 +1,41 @@
 """Scaffold agent — regenerate wiki meta-pages from page state (design §7.1)."""
 
 from engine.agents.scaffold.main import (
+    AGENTS_FILENAME,
+    AGENTS_PROMPT_NAME,
+    AGENTS_SAMPLE_LIMIT,
     DEFAULT_MAX_TOKENS,
     DEFAULT_MODEL,
     INDEX_FILENAME,
     INDEX_PROMPT_NAME,
+    PROPOSED_SUFFIX,
+    PURPOSE_FILENAME,
+    PURPOSE_PROMPT_NAME,
     SUPPORTED_TARGETS,
     ScaffoldResult,
     ScaffoldTarget,
     format_pages_listing,
+    scaffold_agents,
     scaffold_index,
+    scaffold_purpose,
 )
 
 __all__ = [
+    "AGENTS_FILENAME",
+    "AGENTS_PROMPT_NAME",
+    "AGENTS_SAMPLE_LIMIT",
     "DEFAULT_MAX_TOKENS",
     "DEFAULT_MODEL",
     "INDEX_FILENAME",
     "INDEX_PROMPT_NAME",
+    "PROPOSED_SUFFIX",
+    "PURPOSE_FILENAME",
+    "PURPOSE_PROMPT_NAME",
     "SUPPORTED_TARGETS",
     "ScaffoldResult",
     "ScaffoldTarget",
     "format_pages_listing",
+    "scaffold_agents",
     "scaffold_index",
+    "scaffold_purpose",
 ]

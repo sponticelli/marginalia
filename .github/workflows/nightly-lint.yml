@@ -1,0 +1,102 @@
+name: nightly-lint
+
+# Runs `marginalia lint` against the wiki content repo on a schedule and
+# opens a PR with the lint-report.md when anything changed.
+#
+# Required repo secrets (configure under Settings → Secrets and variables → Actions):
+#
+#   WIKI_REPO_URL    — git URL of the wiki content repo
+#                      (e.g. https://github.com/<you>/marginalia-wiki.git)
+#   WIKI_REPO_TOKEN  — PAT with `contents: write` + `pull_requests: write`
+#                      on the wiki repo (separate from the engine repo's
+#                      built-in GITHUB_TOKEN, which can't write across repos)
+#   ANTHROPIC_API_KEY — for the Opus 4.7 contradiction-detection call
+#
+# To test before the cron fires:
+#   gh workflow run nightly-lint.yml
+
+on:
+  schedule:
+    # 02:00 UTC daily — pre-workday for most timezones; the lint Opus
+    # call typically takes <30s on a small wiki, so the cron is cheap.
+    - cron: "0 2 * * *"
+  workflow_dispatch: {}
+
+# Don't pile up overlapping lint runs if cron misfires or someone
+# manually triggers while a prior run is still going.
+concurrency:
+  group: nightly-lint
+  cancel-in-progress: false
+
+jobs:
+  lint:
+    name: lint wiki + open PR
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read     # for engine repo checkout (default)
+      # Write permissions on the wiki repo are granted via WIKI_REPO_TOKEN,
+      # not via this `permissions:` block (which only governs the engine repo).
+
+    steps:
+      - name: Checkout engine repo
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - name: Set up Python 3.12
+        run: uv python install 3.12
+
+      - name: Install engine dependencies
+        run: uv sync --all-extras
+
+      - name: Clone wiki content repo
+        env:
+          WIKI_REPO_URL: ${{ secrets.WIKI_REPO_URL }}
+          WIKI_REPO_TOKEN: ${{ secrets.WIKI_REPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${WIKI_REPO_URL:-}" ]; then
+            echo "::error::WIKI_REPO_URL secret not configured — cannot lint" >&2
+            exit 1
+          fi
+          # Inject the token into the URL for HTTPS auth. Token never lands
+          # in logs because we redact via `set +x` and pipe through git.
+          set +x
+          AUTH_URL="$(echo "$WIKI_REPO_URL" | sed "s#https://#https://x-access-token:${WIKI_REPO_TOKEN}@#")"
+          git clone --depth 1 "$AUTH_URL" wiki
+          set -x
+          # Configure committer for the lint-report PR.
+          git -C wiki config user.email "marginalia-bot@noreply.local"
+          git -C wiki config user.name "marginalia-engine"
+
+      - name: Run lint against wiki
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          WIKI_CONTENT_REPO: ${{ github.workspace }}/wiki
+        run: |
+          uv run marginalia lint --wiki-root wiki
+
+      - name: Open PR if lint-report changed
+        env:
+          GH_TOKEN: ${{ secrets.WIKI_REPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          cd wiki
+          if git diff --quiet -- lint-report.md && [ -z "$(git status --porcelain lint-report.md)" ]; then
+            echo "lint-report.md unchanged — nothing to open"
+            exit 0
+          fi
+          BRANCH="lint/$(date -u +%Y%m%d-%H%M%S)"
+          git switch -c "$BRANCH"
+          git add lint-report.md
+          git commit -m "chore(lint): nightly lint report ($(date -u +%Y-%m-%d))"
+          git push -u origin "$BRANCH"
+          gh pr create \
+            --title "chore(lint): nightly lint report ($(date -u +%Y-%m-%d))" \
+            --body "Automated lint pass run by \`nightly-lint.yml\` from the engine repo. Review the diff against the previous \`lint-report.md\`; merge to keep the dashboard fresh, or close + investigate if a contradiction looks load-bearing." \
+            --base main \
+            --head "$BRANCH"

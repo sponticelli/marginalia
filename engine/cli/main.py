@@ -263,12 +263,20 @@ def scaffold(
     target: str = typer.Option(
         "index",
         "--target",
-        help="Which meta-page to regenerate. Today: 'index'. (purpose/agents are TODO.)",
+        help="Which meta-page to regenerate: index | purpose | agents.",
     ),
     dry_run: bool = typer.Option(
         False,
         "--dry-run",
-        help="Print the proposed content without writing to disk.",
+        help="Print the proposed content without writing any file.",
+    ),
+    apply: bool = typer.Option(
+        False,
+        "--apply",
+        help=(
+            "For purpose/agents only: overwrite the real file instead of writing "
+            "to <file>.proposed. Always review the proposal first."
+        ),
     ),
     wiki_root: Path = typer.Option(  # noqa: B008
         None,
@@ -278,18 +286,31 @@ def scaffold(
 ) -> None:
     """Regenerate wiki meta-pages from current state (design §7.1).
 
-    Today only ``--target index`` is implemented: it walks the wiki,
-    asks Sonnet 4.6 to produce a clean ``index.md`` (grouped by type
-    with one-line descriptions), and writes the result. Pass
-    ``--dry-run`` to inspect the proposal without touching disk.
+    Three targets, each with its own write contract:
 
-    ``purpose`` and ``agents`` targets are deferred — those files are
-    human-authored and should land via a recommend-then-confirm flow,
-    not silent overwrite. Until that flow ships, edit them by hand.
+    - ``--target index`` — fully derivable from page state. Default
+      action writes ``<wiki>/index.md`` directly. ``--dry-run``
+      prints only.
+    - ``--target purpose`` — human-authored. Default action writes
+      ``<wiki>/purpose.md.proposed`` for diff review; pass
+      ``--apply`` to overwrite the real file. ``--dry-run`` prints
+      only.
+    - ``--target agents`` — same recommend-then-confirm contract as
+      purpose, surfaces terminology drift between the style guide
+      and recent pages.
+
+    The proposal carries inline ``<!-- DRIFT: ... -->`` /
+    ``<!-- EVIDENCE: ... -->`` comments anchoring each suggestion to
+    the wiki state that motivated it.
     """
     from anthropic import Anthropic
 
-    from engine.agents.scaffold import SUPPORTED_TARGETS, scaffold_index
+    from engine.agents.scaffold import (
+        SUPPORTED_TARGETS,
+        scaffold_agents,
+        scaffold_index,
+        scaffold_purpose,
+    )
     from engine.models.wiki_config import MarginaliaConfig
 
     if target not in SUPPORTED_TARGETS:
@@ -299,19 +320,68 @@ def scaffold(
         )
         raise typer.Exit(code=1)
 
+    if dry_run and apply:
+        console.print("[red]--dry-run and --apply are mutually exclusive[/red]")
+        raise typer.Exit(code=1)
+    if apply and target == "index":
+        console.print(
+            "[yellow]--apply is for purpose/agents (index is always written by default); "
+            "ignoring.[/yellow]"
+        )
+
     repo_env = os.environ.get("WIKI_CONTENT_REPO")
     wiki_root = wiki_root or (Path(repo_env) if repo_env else Path.cwd())
     config = MarginaliaConfig.load(wiki_root)
     client = Anthropic()
 
-    result = asyncio.run(scaffold_index(wiki_root, config=config, client=client, write=not dry_run))
+    if target == "index":
+        # Index target preserves its prior contract: --dry-run gates writing.
+        write = not dry_run
+        result = asyncio.run(scaffold_index(wiki_root, config=config, client=client, write=write))
+    elif target == "purpose":
+        write = apply and not dry_run
+        if dry_run:
+            # Dry-run path: produce content via write=False (writes to .proposed),
+            # then delete that file so the side effect matches "no write at all".
+            result = asyncio.run(
+                scaffold_purpose(wiki_root, config=config, client=client, write=False)
+            )
+            if result.out_path.is_file():
+                result.out_path.unlink()
+        else:
+            result = asyncio.run(
+                scaffold_purpose(wiki_root, config=config, client=client, write=write)
+            )
+    else:  # agents
+        write = apply and not dry_run
+        if dry_run:
+            result = asyncio.run(
+                scaffold_agents(wiki_root, config=config, client=client, write=False)
+            )
+            if result.out_path.is_file():
+                result.out_path.unlink()
+        else:
+            result = asyncio.run(
+                scaffold_agents(wiki_root, config=config, client=client, write=write)
+            )
+
     console.print(
         f"[dim]model={result.model} • pages={result.pages_indexed} • "
         f"cost=${result.cost_usd:.4f} • wall={result.wall_seconds:.1f}s[/dim]\n"
     )
     console.print(result.content)
-    if not dry_run:
+    if dry_run:
+        console.print("\n[dim](dry run — no file written)[/dim]")
+    else:
         console.print(f"\n[green]wrote →[/green] {result.out_path}")
+        if target in ("purpose", "agents") and not apply:
+            from engine.agents.scaffold import AGENTS_FILENAME, PURPOSE_FILENAME
+
+            real_name = PURPOSE_FILENAME if target == "purpose" else AGENTS_FILENAME
+            console.print(
+                f"[dim]Review with: diff {wiki_root / real_name} {result.out_path}\n"
+                f"To apply: marginalia scaffold --target {target} --apply[/dim]"
+            )
 
 
 @app.command()

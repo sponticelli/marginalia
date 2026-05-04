@@ -1,17 +1,21 @@
 """Scaffold agent — keeps wiki meta-pages in sync with content (design §7.1).
 
-Today: one target, ``index``, which regenerates ``<wiki>/index.md``
-from the current page tree. The other meta-pages the design references
-(``purpose.md``, ``AGENTS.md``) are human-authored and should not be
-silently overwritten — they're TODO follow-ups for a separate
-"recommend updates" mode that diffs proposed against current and asks
-the user before writing.
+Three targets, each with a different write contract:
 
-The agent's value over a hand-rolled markdown generator is grouping
-decisions and short per-entry descriptions: with 50+ pages, a flat
-list is unreadable but mechanical bucketing-by-type misses the
-cross-cutting "what's *important* in this wiki" context the agent can
-infer from titles and relationships.
+- ``index`` — fully derivable from page state. Regenerates
+  ``<wiki>/index.md`` directly; ``write=True`` is the default.
+- ``purpose`` — human-authored. The agent *proposes* refinements
+  based on what the wiki actually contains versus what the file
+  claims; output lands in ``<wiki>/purpose.md.proposed`` for review.
+  Pass ``write=True`` (CLI: ``--apply``) to overwrite the real file.
+- ``agents`` — same recommend-then-confirm contract as ``purpose``,
+  surfaces terminology drift between the style guide and recent pages.
+
+The default-off-write semantics for purpose+agents exists so the
+agent never silently rewrites the user's voice. The proposal carries
+inline `<!-- DRIFT: ... -->` / `<!-- EVIDENCE: ... -->` comments
+anchoring each suggestion to the wiki state that motivated it,
+making the diff reviewable rather than a black-box rewrite.
 """
 
 from __future__ import annotations
@@ -35,12 +39,22 @@ if TYPE_CHECKING:
     from engine.models.wiki_config import MarginaliaConfig
 
 INDEX_PROMPT_NAME = "scaffold_index"
+PURPOSE_PROMPT_NAME = "scaffold_purpose"
+AGENTS_PROMPT_NAME = "scaffold_agents"
 DEFAULT_MODEL = "claude-sonnet-4-6"
 DEFAULT_MAX_TOKENS = 4096
 INDEX_FILENAME = "index.md"
+PURPOSE_FILENAME = "purpose.md"
+AGENTS_FILENAME = "AGENTS.md"
+PROPOSED_SUFFIX = ".proposed"
+# How many pages to sample for the AGENTS.md prompt's body excerpt
+# section — enough to surface terminology drift, few enough to keep
+# the prompt under the model's working comfort zone.
+AGENTS_SAMPLE_LIMIT = 12
+AGENTS_EXCERPT_CHARS = 600
 
 ScaffoldTarget = Literal["index", "purpose", "agents"]
-SUPPORTED_TARGETS: tuple[ScaffoldTarget, ...] = ("index",)
+SUPPORTED_TARGETS: tuple[ScaffoldTarget, ...] = ("index", "purpose", "agents")
 
 # Order pages by type in the rendered listing — matches the prompt's
 # expected section order so the LLM has fewer reordering decisions to make.
@@ -189,14 +203,206 @@ async def scaffold_index(
     )
 
 
+def _excerpt_pages(pages: list[WikiPage], *, limit: int, chars: int) -> str:
+    """Sample up to ``limit`` page bodies, truncated to ``chars`` each.
+
+    Used by ``scaffold_agents`` so the LLM can spot terminology drift
+    in real prose. Sorted by ``last_synced`` descending so the most
+    recent pages — most likely to carry emerging vocabulary — go first.
+    """
+    by_recency = sorted(pages, key=lambda p: p.page.last_synced, reverse=True)[:limit]
+    blocks: list[str] = []
+    for p in by_recency:
+        snippet = p.body.strip().replace("\n", " ")[:chars]
+        blocks.append(f'<page path="{p.wikilink}">\n{snippet}\n</page>')
+    return "\n\n".join(blocks)
+
+
+def _llm_propose(
+    *,
+    prompt_name: str,
+    user_msg: str,
+    client: Anthropic | None,
+    prompt: Prompt | None,
+    model: str | None,
+    max_tokens: int,
+    on_cost: Callable[[CostRecord], None] | None,
+    agent_label: str,
+) -> tuple[str, str, int, int, float, float]:
+    """Run one Sonnet call; return (content, model, tokens_in, tokens_out, cost, wall).
+
+    Factored out because ``scaffold_purpose`` and ``scaffold_agents``
+    differ only in prompt + user payload — the LLM-call shape is
+    identical and worth sharing.
+    """
+    prompt = prompt or load_prompt(prompt_name)
+    if client is None:
+        from anthropic import Anthropic as _Anthropic
+
+        client = _Anthropic()
+
+    chosen_model = model or prompt.model or DEFAULT_MODEL
+
+    t0 = time.perf_counter()
+    resp = client.messages.create(
+        model=chosen_model,
+        max_tokens=max_tokens,
+        **temperature_kwargs(chosen_model),
+        system=prompt.system,
+        messages=[{"role": "user", "content": user_msg}],
+    )
+    wall = time.perf_counter() - t0
+    content = resp.content[0].text.strip() + "\n"
+    tokens_in = int(getattr(resp.usage, "input_tokens", 0) or 0)
+    tokens_out = int(getattr(resp.usage, "output_tokens", 0) or 0)
+    cost = estimate_cost_usd(chosen_model, tokens_in, tokens_out)
+
+    if on_cost is not None:
+        on_cost(
+            record_attempt(
+                agent=agent_label,
+                model=chosen_model,
+                tokens_in=tokens_in,
+                tokens_out=tokens_out,
+                cached=False,
+            )
+        )
+
+    return content, chosen_model, tokens_in, tokens_out, cost, wall
+
+
+def _resolve_proposed_path(target_path: Path, *, write: bool) -> Path:
+    """Pick the output path: real file when ``write=True``, ``.proposed`` otherwise."""
+    return target_path if write else target_path.with_suffix(target_path.suffix + PROPOSED_SUFFIX)
+
+
+async def scaffold_purpose(
+    wiki_root: Path,
+    *,
+    config: MarginaliaConfig,
+    client: Anthropic | None = None,
+    prompt: Prompt | None = None,
+    model: str | None = None,
+    max_tokens: int = DEFAULT_MAX_TOKENS,
+    write: bool = False,
+    on_cost: Callable[[CostRecord], None] | None = None,
+) -> ScaffoldResult:
+    """Propose refinements to ``<wiki_root>/purpose.md`` based on actual page state.
+
+    Default behavior writes to ``purpose.md.proposed`` so the user can
+    diff against the canonical file before deciding what to keep.
+    Pass ``write=True`` (CLI: ``--apply``) to overwrite the real file
+    — only do this after reviewing.
+    """
+    pages = list(walk_wiki(wiki_root))
+    listing = format_pages_listing(pages)
+    user_msg = load_prompt(PURPOSE_PROMPT_NAME).user_template.format(
+        current_purpose=config.purpose_body,
+        pages_listing=listing or "(no pages)",
+    )
+
+    content, chosen_model, tokens_in, tokens_out, cost, wall = _llm_propose(
+        prompt_name=PURPOSE_PROMPT_NAME,
+        user_msg=user_msg,
+        client=client,
+        prompt=prompt,
+        model=model,
+        max_tokens=max_tokens,
+        on_cost=on_cost,
+        agent_label="scaffold",
+    )
+
+    target_path = wiki_root / PURPOSE_FILENAME
+    out_path = _resolve_proposed_path(target_path, write=write)
+    out_path.write_text(content, encoding="utf-8")
+
+    return ScaffoldResult(
+        target="purpose",
+        out_path=out_path,
+        content=content,
+        pages_indexed=len(pages),
+        tokens_in=tokens_in,
+        tokens_out=tokens_out,
+        cost_usd=cost,
+        wall_seconds=wall,
+        model=chosen_model,
+    )
+
+
+async def scaffold_agents(
+    wiki_root: Path,
+    *,
+    config: MarginaliaConfig,
+    client: Anthropic | None = None,
+    prompt: Prompt | None = None,
+    model: str | None = None,
+    max_tokens: int = DEFAULT_MAX_TOKENS,
+    write: bool = False,
+    sample_limit: int = AGENTS_SAMPLE_LIMIT,
+    excerpt_chars: int = AGENTS_EXCERPT_CHARS,
+    on_cost: Callable[[CostRecord], None] | None = None,
+) -> ScaffoldResult:
+    """Propose refinements to ``<wiki_root>/AGENTS.md`` based on terminology drift.
+
+    Same recommend-then-confirm contract as ``scaffold_purpose``:
+    writes to ``AGENTS.md.proposed`` by default; ``write=True`` is
+    the explicit overwrite. Sends a sample of recent page bodies to
+    the model so it can spot vocabulary drift the listing alone
+    can't surface.
+    """
+    pages = list(walk_wiki(wiki_root))
+    listing = format_pages_listing(pages)
+    excerpts = _excerpt_pages(pages, limit=sample_limit, chars=excerpt_chars)
+    user_msg = load_prompt(AGENTS_PROMPT_NAME).user_template.format(
+        current_agents=config.agents_body,
+        pages_listing=listing or "(no pages)",
+        page_excerpts=excerpts or "(no pages)",
+    )
+
+    content, chosen_model, tokens_in, tokens_out, cost, wall = _llm_propose(
+        prompt_name=AGENTS_PROMPT_NAME,
+        user_msg=user_msg,
+        client=client,
+        prompt=prompt,
+        model=model,
+        max_tokens=max_tokens,
+        on_cost=on_cost,
+        agent_label="scaffold",
+    )
+
+    target_path = wiki_root / AGENTS_FILENAME
+    out_path = _resolve_proposed_path(target_path, write=write)
+    out_path.write_text(content, encoding="utf-8")
+
+    return ScaffoldResult(
+        target="agents",
+        out_path=out_path,
+        content=content,
+        pages_indexed=len(pages),
+        tokens_in=tokens_in,
+        tokens_out=tokens_out,
+        cost_usd=cost,
+        wall_seconds=wall,
+        model=chosen_model,
+    )
+
+
 __all__ = [
+    "AGENTS_FILENAME",
+    "AGENTS_PROMPT_NAME",
+    "AGENTS_SAMPLE_LIMIT",
     "DEFAULT_MAX_TOKENS",
     "DEFAULT_MODEL",
     "INDEX_FILENAME",
     "INDEX_PROMPT_NAME",
+    "PROPOSED_SUFFIX",
+    "PURPOSE_FILENAME",
+    "PURPOSE_PROMPT_NAME",
     "SUPPORTED_TARGETS",
     "ScaffoldResult",
     "ScaffoldTarget",
     "format_pages_listing",
+    "scaffold_agents",
     "scaffold_index",
+    "scaffold_purpose",
 ]
