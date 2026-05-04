@@ -15,6 +15,7 @@ from engine.agents.ingest.analyze import (
     build_analyze_system,
     compute_content_sha256,
 )
+from engine.agents.ingest.run import run_ingest_chain
 from engine.agents.ingest.synthesize import (
     DEFAULT_MAX_TOKENS as SYNTH_DEFAULT_MAX_TOKENS,
 )
@@ -49,5 +50,6 @@ __all__ = [
     "compute_content_sha256",
     "normalize_errors",
     "parse_frontmatter_and_body",
+    "run_ingest_chain",
     "synthesize_page",
 ]

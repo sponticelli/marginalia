@@ -104,46 +104,9 @@ _TOOL_SCHEMAS = [
 ]
 
 
-async def _run_ingest_subagent(
-    user_input: str,
-    hint: str | None,
-    *,
-    config,
-    client: Anthropic,
-    wiki_root: Path,
-) -> tuple[str, dict]:
-    """Run extract → analyze → synthesize. Writes to wiki_root/sources/."""
-    from engine.agents.ingest import analyze_source, synthesize_page
-    from engine.agents.synthesis.cross_source import derive_default_path
-    from engine.models.pages import SourceKind
-    from engine.tools.upsert_page import upsert_page
-    from engine.utils.dispatch import extract, extract_url
-
-    is_url = user_input.startswith(("http://", "https://"))
-    if is_url:
-        extracted = await extract_url(user_input, client=client)
-    else:
-        extracted = extract(Path(user_input), client=client)
-
-    if extracted.failure_reason:
-        return f"extraction failed: {extracted.failure_reason}", {
-            "extraction_method": extracted.extraction_method,
-            "failure_reason": extracted.failure_reason,
-        }
-
-    source_kind = SourceKind.YOUTUBE_VIDEO if is_url else SourceKind.LOCAL_FILE
-    analysis = await analyze_source(extracted.text, source_kind, config, client=client)
-    page, body, _log = await synthesize_page(analysis, config, hint=hint, client=client)
-    page_path = derive_default_path(page)
-
-    upsert_page(
-        page_path,
-        page.model_dump(mode="json", exclude_none=True),
-        body,
-        wiki_root=wiki_root,
-    )
-    summary = f"ingested {user_input!r} → {page_path} ({page.status.value})"
-    return summary, {"path": page_path, "status": page.status.value, "title": page.title}
+# Ingest dispatch: orchestrator and the §7.5 job worker share
+# `engine.agents.ingest.run_ingest_chain` — the single source of truth for
+# extract → analyze → synthesize → upsert.
 
 
 def _summarize_qa_result(result: QaAnswer | object) -> tuple[str, dict]:
@@ -219,12 +182,14 @@ async def run_orchestrator(
             cost_sub = 0.0
             try:
                 if block.name == "spawn_ingest_agent":
-                    summary, _ = await _run_ingest_subagent(
+                    from engine.agents.ingest import run_ingest_chain
+
+                    summary, _ = await run_ingest_chain(
                         block.input["input"],
-                        block.input.get("hint"),
                         config=config,
                         client=client,
                         wiki_root=wiki_root,
+                        hint=block.input.get("hint"),
                     )
                 elif block.name == "spawn_qa_agent":
                     qa_result = await qa_with_gap_detection(
