@@ -40,3 +40,4 @@ _logs/
 
 # Claude Code per-user local overrides
 .claude/settings.local.json
+.claude/agent-memory/
