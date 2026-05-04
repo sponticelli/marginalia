@@ -9,6 +9,7 @@ from pathlib import Path
 import typer
 from rich.console import Console
 
+from engine.cli.audit import app as audit_app
 from engine.cli.cache import app as cache_app
 from engine.cli.jobs import app as jobs_app
 
@@ -19,6 +20,7 @@ app = typer.Typer(
 )
 app.add_typer(jobs_app, name="jobs")
 app.add_typer(cache_app, name="cache")
+app.add_typer(audit_app, name="audit")
 console = Console()
 
 
@@ -72,6 +74,9 @@ def worker(
     """
     from anthropic import Anthropic
 
+    from engine.audit import AuditWriter
+    from engine.audit.db import init_db as init_audit_db
+    from engine.hooks import HookDispatcher
     from engine.jobs import WorkerCtx, init_db, run_worker
     from engine.models.wiki_config import MarginaliaConfig
 
@@ -80,9 +85,21 @@ def worker(
     db = db or wiki_root / ".wiki" / "jobs.db"
     init_db(db)
 
+    audit_db_path = wiki_root / ".wiki" / "audit.db"
+    init_audit_db(audit_db_path)
+
     config = MarginaliaConfig.load(wiki_root)
     client = Anthropic()
-    ctx = WorkerCtx(wiki_root=wiki_root, config=config, client=client, db_path=db)
+    audit_writer = AuditWriter(audit_db_path)
+    hook_dispatcher = HookDispatcher(config.hook_config, audit_writer=audit_writer)
+    ctx = WorkerCtx(
+        wiki_root=wiki_root,
+        config=config,
+        client=client,
+        db_path=db,
+        audit_writer=audit_writer,
+        hook_dispatcher=hook_dispatcher,
+    )
 
     console.print(
         f"[dim]worker started; db=[cyan]{db}[/cyan] wiki_root=[cyan]{wiki_root}[/cyan][/dim]"

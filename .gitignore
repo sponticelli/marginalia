@@ -38,6 +38,10 @@ Thumbs.db
 # Project-specific
 _logs/
 **/.wiki/cache/
+**/.wiki/audit.db
+**/.wiki/audit.db-journal
+**/.wiki/audit.db-wal
+**/.wiki/audit.db-shm
 
 # Claude Code per-user local overrides
 .claude/settings.local.json

@@ -17,8 +17,11 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from engine.hooks.config import HookConfig, load_hook_config
+
 PURPOSE_FILENAME = "purpose.md"
 AGENTS_FILENAME = "AGENTS.md"
+CONFIG_TOML_RELATIVE = (".wiki", "config.toml")
 
 _BULLET_RE = re.compile(r"^\s*-\s+(.+?)\s*$")
 _IN_SCOPE_HEADER_RE = re.compile(r"^#+\s*(?:sources?\s+)?in\s+scope", re.IGNORECASE)
@@ -49,10 +52,23 @@ class MarginaliaConfig(BaseModel):
     agents_body: str
     in_scope: list[str] = Field(default_factory=list)
     out_of_scope: list[str] = Field(default_factory=list)
+    hook_config: HookConfig | None = Field(
+        default=None,
+        description=(
+            "Optional hooks loaded from `<wiki_root>/.wiki/config.toml`. None "
+            "if the file is absent — the engine treats missing hook config as "
+            "'no hooks registered' (no error)."
+        ),
+    )
 
     @classmethod
     def load(cls, wiki_root: Path | str) -> MarginaliaConfig:
-        """Read both files relative to `wiki_root`. Raises if either is missing."""
+        """Read both files relative to `wiki_root`. Raises if either is missing.
+
+        Also loads optional ``<wiki_root>/.wiki/config.toml`` for hook
+        registrations (design §14). Missing TOML is fine; malformed
+        TOML or unknown event names raise loudly.
+        """
         root = Path(wiki_root)
         purpose_path = root / PURPOSE_FILENAME
         agents_path = root / AGENTS_FILENAME
@@ -68,6 +84,8 @@ class MarginaliaConfig(BaseModel):
         agents_body = agents_path.read_text(encoding="utf-8")
         in_scope, out_of_scope = _extract_scope_bullets(purpose_body)
 
+        hook_config = load_hook_config(root.joinpath(*CONFIG_TOML_RELATIVE))
+
         return cls(
             wiki_root=root,
             purpose_path=purpose_path,
@@ -76,6 +94,7 @@ class MarginaliaConfig(BaseModel):
             agents_body=agents_body,
             in_scope=in_scope,
             out_of_scope=out_of_scope,
+            hook_config=hook_config,
         )
 
 

@@ -14,11 +14,14 @@ produces (subject to L1 cache hits for the analyze step).
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from anthropic import Anthropic
+
+    from engine.utils.cost_tracker import CostRecord
 
 
 async def run_ingest_chain(
@@ -28,6 +31,7 @@ async def run_ingest_chain(
     client: Anthropic,
     wiki_root: Path,
     hint: str | None = None,
+    on_cost: Callable[[CostRecord], None] | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Run extract → analyze → synthesize → upsert for one source.
 
@@ -35,9 +39,20 @@ async def run_ingest_chain(
     human-readable string and ``result`` is a dict suitable for
     serializing into the job queue's ``result`` column.
 
+    The result dict carries observability hooks the dispatcher uses
+    to write the §13.2 ``ingest_history`` row:
+    - ``path``      — wiki page path (also in summary)
+    - ``status``    — ``page.status``
+    - ``title``     — ``page.title``
+    - ``content_sha256`` — analyzer's source hash (cache-key spine)
+    - ``confidence``     — page-level confidence (None when not set)
+
+    ``on_cost`` is forwarded to both ``analyze_source`` and
+    ``synthesize_page``; per-attempt records arrive on every API call.
+
     On extraction failure (e.g. unsupported file, fetch error), the
     function returns early with the failure reason in both the summary
-    and the result — no page is written.
+    and the result — no page is written, no cost callbacks fire.
     """
     from engine.agents.ingest.analyze import analyze_source
     from engine.agents.ingest.synthesize import synthesize_page
@@ -59,8 +74,12 @@ async def run_ingest_chain(
         }
 
     source_kind = SourceKind.YOUTUBE_VIDEO if is_url else SourceKind.LOCAL_FILE
-    analysis = await analyze_source(extracted.text, source_kind, config, client=client)
-    page, body, _log = await synthesize_page(analysis, config, hint=hint, client=client)
+    analysis = await analyze_source(
+        extracted.text, source_kind, config, client=client, on_cost=on_cost
+    )
+    page, body, _log = await synthesize_page(
+        analysis, config, hint=hint, client=client, on_cost=on_cost
+    )
     page_path = derive_default_path(page)
 
     upsert_page(
@@ -70,7 +89,13 @@ async def run_ingest_chain(
         wiki_root=wiki_root,
     )
     summary = f"ingested {user_input!r} → {page_path} ({page.status.value})"
-    return summary, {"path": page_path, "status": page.status.value, "title": page.title}
+    return summary, {
+        "path": page_path,
+        "status": page.status.value,
+        "title": page.title,
+        "content_sha256": analysis.content_sha256,
+        "confidence": page.confidence.value if page.confidence else None,
+    }
 
 
 __all__ = ["run_ingest_chain"]

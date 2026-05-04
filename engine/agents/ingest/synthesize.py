@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import re
 import time
+from collections.abc import Callable
 from datetime import date
 from typing import TYPE_CHECKING
 
@@ -21,6 +22,7 @@ from engine.agents.ingest.analyze import SourceAnalysis
 from engine.models.pages import PageStatus, PageType, SourcePage
 from engine.prompts import Prompt, load_prompt
 from engine.utils.api_compat import temperature_kwargs
+from engine.utils.cost_tracker import CostRecord, record_attempt
 
 if TYPE_CHECKING:
     from anthropic import Anthropic
@@ -120,6 +122,7 @@ async def synthesize_page(
     model: str | None = None,
     max_tokens: int = DEFAULT_MAX_TOKENS,
     max_attempts: int = MAX_ATTEMPTS,
+    on_cost: Callable[[CostRecord], None] | None = None,
 ) -> tuple[SourcePage, str, list[AttemptRecord]]:
     """Synthesize a `SourcePage` from analysis with strict-schema retry.
 
@@ -172,6 +175,16 @@ async def synthesize_page(
             output_tokens=resp.usage.output_tokens,
         )
         attempt_log.append(record)
+        if on_cost is not None:
+            on_cost(
+                record_attempt(
+                    agent="synthesis",
+                    model=chosen_model,
+                    tokens_in=int(getattr(resp.usage, "input_tokens", 0) or 0),
+                    tokens_out=int(getattr(resp.usage, "output_tokens", 0) or 0),
+                    cached=False,
+                )
+            )
 
         try:
             fm_dict, body = parse_frontmatter_and_body(resp.content[0].text)

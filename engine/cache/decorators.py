@@ -24,6 +24,7 @@ from engine.cache.keys import build_l1_key, build_l2_key
 from engine.cache.l1_analysis import AnalysisCache
 from engine.cache.l2_responses import CachedLLMResponse, ResponseCache
 from engine.prompts import Prompt, load_prompt
+from engine.utils.cost_tracker import CostRecord, record_attempt
 
 if TYPE_CHECKING:
     from anthropic import Anthropic
@@ -42,12 +43,16 @@ async def cached_analyze(
     prompt: Prompt | None = None,
     model: str | None = None,
     max_tokens: int = DEFAULT_MAX_TOKENS,
+    on_cost: Callable[[CostRecord], None] | None = None,
 ) -> tuple[SourceAnalysis, bool]:
     """L1-cached wrapper around ``analyze_source``.
 
     Returns ``(analysis, was_hit)``. On a hit, the cached
-    ``SourceAnalysis`` is returned without touching Anthropic. On a
-    miss, the underlying call runs and the result is persisted.
+    ``SourceAnalysis`` is returned without touching Anthropic and a
+    ``CostRecord(cached=True, tokens_in=0, tokens_out=0)`` is emitted
+    via ``on_cost`` so audit-side aggregations can count the hit. On
+    a miss, ``on_cost`` forwards to ``analyze_source`` so the API
+    call's tokens land as a normal ``cached=False`` record.
 
     The L1 key folds in ``content_sha + CACHE_VERSION + prompt.name +
     prompt.version`` — editing a prompt body without bumping its
@@ -65,6 +70,16 @@ async def cached_analyze(
 
     hit = cache.get(key)
     if hit is not None:
+        if on_cost is not None:
+            on_cost(
+                record_attempt(
+                    agent="ingest",
+                    model=model or prompt.model or "claude-haiku-4-5",
+                    tokens_in=0,
+                    tokens_out=0,
+                    cached=True,
+                )
+            )
         return hit, True
 
     analysis = await analyze_source(
@@ -75,6 +90,7 @@ async def cached_analyze(
         prompt=prompt,
         model=model,
         max_tokens=max_tokens,
+        on_cost=on_cost,
     )
     cache.set(key, analysis)
     return analysis, False
@@ -86,12 +102,18 @@ async def cached_llm_call(
     rendered_prompt: str,
     model: str,
     fn: Callable[[], Awaitable[CachedLLMResponse]],
+    agent: str = "qa",
+    on_cost: Callable[[CostRecord], None] | None = None,
 ) -> tuple[CachedLLMResponse, bool]:
     """L2-cached wrapper for any deterministic LLM call.
 
     Caller renders the full prompt (system + user) into one string,
     names the model, and supplies an async callable that performs the
     actual API call when needed. A cache hit short-circuits ``fn``.
+
+    On hit, emits a ``CostRecord(cached=True, tokens_in=0)``. On miss,
+    builds a normal ``CostRecord`` from the response's reported tokens
+    and the supplied ``agent`` label.
     """
     key = build_l2_key(
         rendered_prompt=rendered_prompt,
@@ -100,10 +122,30 @@ async def cached_llm_call(
     )
     hit = cache.get(key)
     if hit is not None:
+        if on_cost is not None:
+            on_cost(
+                record_attempt(
+                    agent=agent,
+                    model=model,
+                    tokens_in=0,
+                    tokens_out=0,
+                    cached=True,
+                )
+            )
         return hit, True
 
     result = await fn()
     cache.set(key, result)
+    if on_cost is not None:
+        on_cost(
+            record_attempt(
+                agent=agent,
+                model=model,
+                tokens_in=result.tokens_in,
+                tokens_out=result.tokens_out,
+                cached=False,
+            )
+        )
     return result, False
 
 

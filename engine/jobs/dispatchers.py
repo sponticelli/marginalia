@@ -17,16 +17,20 @@ else.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from engine.jobs.models import JobKind
+from engine.utils.cost_tracker import CostRecord
 
 if TYPE_CHECKING:
     from anthropic import Anthropic
 
+    from engine.audit.writer import AuditWriter
+    from engine.hooks.dispatcher import HookDispatcher
     from engine.models.wiki_config import MarginaliaConfig
 
 Handler = Callable[[dict, "WorkerCtx", str], Awaitable[dict]]
@@ -39,12 +43,18 @@ class WorkerCtx:
     Carries the Anthropic client, wiki config, and wiki root. The
     config + client are shared across jobs in a worker run; the wiki
     root tells handlers where to write pages.
+
+    ``audit_writer`` and ``hook_dispatcher`` are optional — when
+    ``None``, handlers run without persisting to ``audit.db`` and
+    without firing hooks (NB 09 behaviour). NB 11 wires both in.
     """
 
     wiki_root: Path
     config: MarginaliaConfig
     client: Anthropic
     db_path: Path  # so handlers like ingest_batch can enqueue children
+    audit_writer: AuditWriter | None = field(default=None)
+    hook_dispatcher: HookDispatcher | None = field(default=None)
 
 
 # Public registry. Dispatchers register themselves at module import; the
@@ -63,20 +73,179 @@ async def _handle_ingest(payload: dict, ctx: WorkerCtx, job_id: str) -> dict:
     """Ingest one source. Payload: {"input": <path-or-url>, "hint": optional}.
 
     Wraps ``run_ingest_chain`` — the same callable the orchestrator uses.
-    Result mirrors what the orchestrator's tool reports.
+    Result mirrors what the orchestrator's tool reports, plus the
+    audit-relevant fields ``content_sha256`` and ``confidence``.
+
+    Observability side effects (when ``ctx.audit_writer`` and/or
+    ``ctx.hook_dispatcher`` are wired):
+    - ``cost_records`` row per LLM attempt (analyze + synthesize),
+      including cache hits as ``cached=1`` rows.
+    - ``ingest_history`` row summarising the call (tokens, cost,
+      duration, page paths, source hash).
+    - ``on_ingest_complete`` hook fired with the page-level context.
+      Blocking hooks raise; the worker treats that as a failed job.
     """
     from engine.agents.ingest import run_ingest_chain
 
     user_input: str = payload["input"]
     hint = payload.get("hint")
+
+    cost_records: list[CostRecord] = []
+    on_cost = _make_on_cost(ctx, job_id, sink=cost_records)
+
+    t0 = time.perf_counter()
     summary, result = await run_ingest_chain(
         user_input,
         config=ctx.config,
         client=ctx.client,
         wiki_root=ctx.wiki_root,
         hint=hint,
+        on_cost=on_cost,
     )
+    duration_ms = int((time.perf_counter() - t0) * 1000)
+
+    if ctx.audit_writer is not None and "path" in result:
+        page_paths = [result["path"]]
+        ctx.audit_writer.record_ingest(
+            job_id=job_id,
+            source_ref=user_input,
+            source_hash=result.get("content_sha256", ""),
+            page_paths=page_paths,
+            tokens_in=sum(r.tokens_in for r in cost_records),
+            tokens_out=sum(r.tokens_out for r in cost_records),
+            cost_usd=sum(r.cost_usd for r in cost_records),
+            duration_ms=duration_ms,
+        )
+
+    if ctx.hook_dispatcher is not None and "path" in result:
+        ctx.hook_dispatcher.fire(
+            "on_ingest_complete",
+            {
+                "job_id": job_id,
+                "source_ref": user_input,
+                "page_paths": [result["path"]],
+                "status": result.get("status"),
+                "confidence": result.get("confidence"),
+                "tokens_in": sum(r.tokens_in for r in cost_records),
+                "tokens_out": sum(r.tokens_out for r in cost_records),
+                "cost_usd": sum(r.cost_usd for r in cost_records),
+                "duration_ms": duration_ms,
+            },
+            job_id=job_id,
+        )
+
     return {"summary": summary, **result}
+
+
+async def _handle_lint(payload: dict, ctx: WorkerCtx, job_id: str) -> dict:
+    """Run a full lint pass against the wiki.
+
+    Payload knobs (all optional):
+    - ``threshold_days``: stale-detection threshold (default per
+      ``DEFAULT_STALE_THRESHOLD_DAYS``).
+
+    Side effects (when wired):
+    - One ``cost_records`` row from the Opus contradiction call.
+    - One ``audit_events`` row per contradiction (event_type
+      ``contradiction_found``); one per stale page (``stale_detected``);
+      one per orphan (``orphan_detected``).
+    - ``on_lint_complete`` hook fired with the LintReport JSON.
+    """
+    from engine.agents.lint.full_pass import (
+        DEFAULT_STALE_THRESHOLD_DAYS,
+        lint_wiki,
+    )
+
+    threshold_days = int(payload.get("threshold_days", DEFAULT_STALE_THRESHOLD_DAYS))
+
+    t0 = time.perf_counter()
+    report = lint_wiki(
+        ctx.wiki_root,
+        client=ctx.client,
+        threshold_days=threshold_days,
+    )
+    duration_ms = int((time.perf_counter() - t0) * 1000)
+
+    if ctx.audit_writer is not None:
+        # The Opus call's tokens land as one cost_records row.
+        from engine.utils.cost_tracker import record_attempt
+
+        ctx.audit_writer.record_cost(
+            record_attempt(
+                agent="lint",
+                model=report.model,
+                tokens_in=report.tokens_in,
+                tokens_out=report.tokens_out,
+                cached=False,
+                job_id=job_id,
+            )
+        )
+        for c in report.contradictions:
+            ctx.audit_writer.record_event(
+                event_type="contradiction_found",
+                metadata=c.model_dump(mode="json"),
+                job_id=job_id,
+            )
+        for s in report.stale_pages:
+            ctx.audit_writer.record_event(
+                event_type="stale_detected",
+                metadata=s.model_dump(mode="json"),
+                job_id=job_id,
+            )
+        for o in report.orphans:
+            ctx.audit_writer.record_event(
+                event_type="orphan_detected",
+                metadata=o.model_dump(mode="json"),
+                job_id=job_id,
+            )
+
+    if ctx.hook_dispatcher is not None:
+        ctx.hook_dispatcher.fire(
+            "on_lint_complete",
+            {
+                "job_id": job_id,
+                "total_pages": report.total_pages,
+                "contradictions": [c.model_dump(mode="json") for c in report.contradictions],
+                "stale_pages": [s.model_dump(mode="json") for s in report.stale_pages],
+                "orphans": [o.model_dump(mode="json") for o in report.orphans],
+                "tokens_in": report.tokens_in,
+                "tokens_out": report.tokens_out,
+                "cost_usd": report.cost_usd,
+                "duration_ms": duration_ms,
+            },
+            job_id=job_id,
+        )
+
+    return {
+        "total_pages": report.total_pages,
+        "contradictions": len(report.contradictions),
+        "stale": len(report.stale_pages),
+        "orphans": len(report.orphans),
+        "cost_usd": report.cost_usd,
+        "duration_ms": duration_ms,
+    }
+
+
+def _make_on_cost(
+    ctx: WorkerCtx,
+    job_id: str,
+    *,
+    sink: list[CostRecord],
+) -> Callable[[CostRecord], None]:
+    """Build an ``on_cost`` callback that appends to a sink and writes audit.
+
+    The sink lets the handler aggregate (sum tokens, etc.) after the
+    chain finishes; the audit-write side-effect persists each record
+    immediately so a crash mid-run still leaves a partial trail.
+    """
+
+    def _emit(record: CostRecord) -> None:
+        record.job_id = job_id
+        sink.append(record)
+        if ctx.audit_writer is not None:
+            ctx.audit_writer.record_cost(record)
+
+    return _emit
 
 
 async def _handle_synthesis(payload: dict, ctx: WorkerCtx, job_id: str) -> dict:
@@ -258,6 +427,7 @@ async def _handle_mock_flaky(payload: dict, ctx: WorkerCtx, job_id: str) -> dict
 register_dispatcher("ingest", _handle_ingest)
 register_dispatcher("ingest_batch", _handle_ingest_batch)
 register_dispatcher("synthesis", _handle_synthesis_gated)
+register_dispatcher("lint", _handle_lint)
 register_dispatcher("_mock_flaky", _handle_mock_flaky)
 
 

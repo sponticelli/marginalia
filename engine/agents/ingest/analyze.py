@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -19,6 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from engine.models.pages import Confidence, PageType, SourceKind
 from engine.prompts import Prompt, load_prompt
 from engine.utils.api_compat import temperature_kwargs
+from engine.utils.cost_tracker import CostRecord, record_attempt
 
 if TYPE_CHECKING:
     from anthropic import Anthropic
@@ -150,6 +152,7 @@ async def analyze_source(
     max_tokens: int = DEFAULT_MAX_TOKENS,
     prompt_cache: bool = True,
     out_usage: dict | None = None,
+    on_cost: Callable[[CostRecord], None] | None = None,
 ) -> SourceAnalysis:
     """Run the cacheable ingest analyze step on one source body.
 
@@ -199,6 +202,16 @@ async def analyze_source(
     )
     if out_usage is not None:
         _record_usage(resp.usage, out_usage)
+    if on_cost is not None:
+        on_cost(
+            record_attempt(
+                agent="ingest",
+                model=chosen_model,
+                tokens_in=int(getattr(resp.usage, "input_tokens", 0) or 0),
+                tokens_out=int(getattr(resp.usage, "output_tokens", 0) or 0),
+                cached=False,
+            )
+        )
     data = _parse_json_object(resp.content[0].text)
     data["content_sha256"] = sha
     return SourceAnalysis.model_validate(data)
